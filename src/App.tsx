@@ -46,7 +46,6 @@ const App = () => (
             </Routes>
           </DatasetProvider>
         </AuthProvider>
-      </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
