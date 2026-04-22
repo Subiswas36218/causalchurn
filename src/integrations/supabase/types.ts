@@ -14,16 +14,178 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      analyses: {
+        Row: {
+          ate: number | null
+          ate_ci_high: number | null
+          ate_ci_low: number | null
+          created_at: string
+          dataset_id: string
+          id: string
+          results_json: Json | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          ate?: number | null
+          ate_ci_high?: number | null
+          ate_ci_low?: number | null
+          created_at?: string
+          dataset_id: string
+          id?: string
+          results_json?: Json | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          ate?: number | null
+          ate_ci_high?: number | null
+          ate_ci_low?: number | null
+          created_at?: string
+          dataset_id?: string
+          id?: string
+          results_json?: Json | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analyses_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      datasets: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          row_count: number
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          row_count?: number
+          storage_path: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          row_count?: number
+          storage_path?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_segments: {
+        Row: {
+          analysis_id: string
+          baseline_risk: number | null
+          created_at: string
+          customer_id: string
+          id: string
+          predicted_uplift: number | null
+          segment: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          baseline_risk?: number | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          predicted_uplift?: number | null
+          segment: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          baseline_risk?: number | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          predicted_uplift?: number | null
+          segment?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_segments_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +312,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
