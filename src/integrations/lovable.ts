@@ -1,1 +1,0 @@
-export { lovable } from "./index";
