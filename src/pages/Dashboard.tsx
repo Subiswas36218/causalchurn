@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Users, TrendingDown, TrendingUp, Activity, Target } from "lucide-react";
+import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const COLORS = ["hsl(217 91% 60%)", "hsl(270 91% 65%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)"];
 
