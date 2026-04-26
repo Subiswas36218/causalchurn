@@ -167,18 +167,26 @@ export default function Dashboard() {
 
   const StatusBanner = () => {
     if (effectiveStatus === "uploading" || effectiveStatus === "analyzing") {
+      const startedAt = selectedAnalysis?.created_at
+        ? new Date(selectedAnalysis.created_at)
+        : null;
       return (
         <Card className="glass-card border-primary/40 bg-primary/5">
-          <CardContent className="flex items-center gap-3 p-4">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <div className="flex-1">
-              <div className="text-sm font-medium">
-                {effectiveStatus === "uploading" ? "Uploading dataset…" : "Analyzing — running causal model…"}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Polling for results… this usually takes a few seconds.
+          <CardContent className="space-y-4 p-4">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div className="flex-1">
+                <div className="text-sm font-medium">
+                  {effectiveStatus === "uploading"
+                    ? "Uploading dataset…"
+                    : "Analyzing — running causal model…"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Polling every 2.5s for results.
+                </div>
               </div>
             </div>
+            <AnalysisProgress startedAt={startedAt} />
           </CardContent>
         </Card>
       );
