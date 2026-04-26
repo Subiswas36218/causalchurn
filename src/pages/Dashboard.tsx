@@ -2,11 +2,13 @@ import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useDataset } from "@/hooks/useDataset";
 import { EmptyState } from "@/components/EmptyState";
+import { DatasetHistory } from "@/components/DatasetHistory";
+import { AnalysisProgress } from "@/components/AnalysisProgress";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X, FileText, CheckCircle2, Clock } from "lucide-react";
+import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X, FileText, CheckCircle2, Clock, PlayCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
