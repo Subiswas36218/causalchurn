@@ -921,25 +921,58 @@ function CompareView({
               </caption>
               <thead>
                 <tr className="border-b border-border/40 text-xs text-muted-foreground">
-                  <th scope="col" className="px-4 py-2 text-left font-medium">
-                    Metric
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    A (95% CI)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    B (95% CI)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    Δ (B − A)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    p-value
-                  </th>
+                  <SortableTh
+                    label="Metric"
+                    sortKey="metric"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="left"
+                  />
+                  <SortableTh
+                    label="A (95% CI)"
+                    sortKey="a"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="B (95% CI)"
+                    sortKey="b"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Δ (B − A)"
+                    sortKey="delta"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="p-value"
+                    sortKey="p"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Sig."
+                    sortKey="stars"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {metrics.map((m) => {
+                {sortedMetrics.map((m) => {
                   const delta = m.diffTest?.diff ?? null;
                   const stars = m.diffTest ? sigStars(m.diffTest.p) : "";
                   const pCls =
@@ -987,9 +1020,15 @@ function CompareView({
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {m.diffTest ? (
-                          <span className={cn("inline-flex items-center gap-1", pCls)}>
-                            {formatP(m.diffTest.p)}
-                            <span className="text-[10px] font-semibold">{stars}</span>
+                          <span className={pCls}>{formatP(m.diffTest.p)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {m.diffTest ? (
+                          <span className={cn("text-[11px] font-semibold", pCls)}>
+                            {stars}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
