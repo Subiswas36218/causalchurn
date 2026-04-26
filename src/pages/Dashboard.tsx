@@ -159,7 +159,20 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          {statusBadge}
+          <div className="flex items-center gap-2">
+            {statusBadge}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => refresh()}
+              disabled={isRunning}
+              title="Re-poll the latest analysis status"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isRunning ? "animate-spin" : ""}`} />
+              Refresh status
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
