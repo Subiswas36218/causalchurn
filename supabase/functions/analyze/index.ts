@@ -23,6 +23,31 @@ function classifySegment(uplift: number, baselineRisk: number): string {
   return "lost_cause";
 }
 
+function parseCsv(text: string): CsvRow[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(",").map((h) => h.trim());
+  const numericCols = new Set([
+    "treatment",
+    "churn",
+    "tenure",
+    "support_tickets",
+    "discount",
+    "monthly_charges",
+  ]);
+  const out: CsvRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(",");
+    const row: Record<string, unknown> = {};
+    header.forEach((h, idx) => {
+      const raw = (cells[idx] ?? "").trim();
+      row[h] = numericCols.has(h) ? Number(raw) : raw;
+    });
+    out.push(row as unknown as CsvRow);
+  }
+  return out;
+}
+
 // Lightweight fallback causal analysis (used when no external Python API is configured).
 // Computes simple difference-in-means ATE + heuristic uplift per row.
 function localAnalyze(rows: CsvRow[]) {
