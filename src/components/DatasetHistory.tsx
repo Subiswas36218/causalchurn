@@ -55,6 +55,7 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   Minus,
   Timer,
   Download,
@@ -719,6 +720,46 @@ function buildCompareCsv(
   return toCsv([header, ...rows]);
 }
 
+interface SortableThProps {
+  label: string;
+  sortKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  activeKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  dir: "asc" | "desc";
+  onSort: (key: SortableThProps["sortKey"]) => void;
+  align: "left" | "right";
+}
+
+function SortableTh({ label, sortKey, activeKey, dir, onSort, align }: SortableThProps) {
+  const isActive = activeKey === sortKey;
+  const ariaSort: React.AriaAttributes["aria-sort"] = isActive
+    ? dir === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
+  const Icon = !isActive ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      scope="col"
+      aria-sort={ariaSort}
+      className={cn("px-4 py-2 font-medium", align === "left" ? "text-left" : "text-right")}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          align === "right" && "flex-row-reverse",
+          isActive && "text-foreground",
+        )}
+        aria-label={`Sort by ${label}${isActive ? `, currently ${dir === "asc" ? "ascending" : "descending"}` : ""}`}
+      >
+        <span>{label}</span>
+        <Icon className={cn("h-3 w-3", isActive ? "opacity-100" : "opacity-50")} aria-hidden="true" />
+      </button>
+    </th>
+  );
+}
+
 function CompareView({
   a,
   b,
@@ -731,6 +772,65 @@ function CompareView({
   const metrics = useMemo(() => buildMetrics(a, b), [a, b]);
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [exporting, setExporting] = useState<"csv" | "png" | null>(null);
+
+  type SortKey = "metric" | "a" | "b" | "delta" | "p" | "stars";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("metric");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const starRank = (p: number | null | undefined): number => {
+    if (p === null || p === undefined || !Number.isFinite(p)) return -1;
+    if (p < 0.001) return 3;
+    if (p < 0.01) return 2;
+    if (p < 0.05) return 1;
+    return 0;
+  };
+
+  const sortedMetrics = useMemo(() => {
+    const arr = [...metrics];
+    const dir = sortDir === "asc" ? 1 : -1;
+    const valOf = (m: typeof metrics[number]): number | string | null => {
+      switch (sortKey) {
+        case "metric":
+          return m.label;
+        case "a":
+          return m.av;
+        case "b":
+          return m.bv;
+        case "delta":
+          return m.diffTest?.diff ?? null;
+        case "p":
+          return m.diffTest?.p ?? null;
+        case "stars":
+          return starRank(m.diffTest?.p);
+      }
+    };
+    arr.sort((x, y) => {
+      const vx = valOf(x);
+      const vy = valOf(y);
+      // null/NaN values always sort to the bottom regardless of dir
+      const nx = vx === null || (typeof vx === "number" && !Number.isFinite(vx));
+      const ny = vy === null || (typeof vy === "number" && !Number.isFinite(vy));
+      if (nx && ny) return 0;
+      if (nx) return 1;
+      if (ny) return -1;
+      if (typeof vx === "string" && typeof vy === "string") {
+        return vx.localeCompare(vy) * dir;
+      }
+      return ((vx as number) - (vy as number)) * dir;
+    });
+    return arr;
+  }, [metrics, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // Numeric columns feel more useful descending by default; metric label asc.
+      setSortDir(key === "metric" ? "asc" : "desc");
+    }
+  };
 
   const handleCsv = () => {
     setExporting("csv");
@@ -861,25 +961,58 @@ function CompareView({
               </caption>
               <thead>
                 <tr className="border-b border-border/40 text-xs text-muted-foreground">
-                  <th scope="col" className="px-4 py-2 text-left font-medium">
-                    Metric
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    A (95% CI)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    B (95% CI)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    Δ (B − A)
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    p-value
-                  </th>
+                  <SortableTh
+                    label="Metric"
+                    sortKey="metric"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="left"
+                  />
+                  <SortableTh
+                    label="A (95% CI)"
+                    sortKey="a"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="B (95% CI)"
+                    sortKey="b"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Δ (B − A)"
+                    sortKey="delta"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="p-value"
+                    sortKey="p"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
+                  <SortableTh
+                    label="Sig."
+                    sortKey="stars"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {metrics.map((m) => {
+                {sortedMetrics.map((m) => {
                   const delta = m.diffTest?.diff ?? null;
                   const stars = m.diffTest ? sigStars(m.diffTest.p) : "";
                   const pCls =
@@ -927,9 +1060,15 @@ function CompareView({
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">
                         {m.diffTest ? (
-                          <span className={cn("inline-flex items-center gap-1", pCls)}>
-                            {formatP(m.diffTest.p)}
-                            <span className="text-[10px] font-semibold">{stars}</span>
+                          <span className={pCls}>{formatP(m.diffTest.p)}</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {m.diffTest ? (
+                          <span className={cn("text-[11px] font-semibold", pCls)}>
+                            {stars}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">—</span>
