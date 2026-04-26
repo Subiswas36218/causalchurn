@@ -245,7 +245,8 @@ function CompareView({
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="space-y-4 p-0">
+        <CompareCharts a={a} b={b} metrics={metrics} />
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
