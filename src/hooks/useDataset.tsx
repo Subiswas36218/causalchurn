@@ -24,12 +24,18 @@ export interface AnalysisRow {
 
 export type AnalysisStatus = "idle" | "uploading" | "analyzing" | "complete" | "error";
 
+export interface DatasetWithAnalysis extends DatasetRow {
+  latest_analysis: AnalysisRow | null;
+}
+
 interface DatasetCtx {
   datasets: DatasetRow[];
+  datasetsWithAnalysis: DatasetWithAnalysis[];
   selectedDatasetId: string | null;
   setSelectedDatasetId: (id: string | null) => void;
   selectedAnalysis: AnalysisRow | null;
   loading: boolean;
+  lastRefreshedAt: Date | null;
   refresh: () => Promise<void>;
   analysisStatus: AnalysisStatus;
   analysisError: string | null;
@@ -39,10 +45,12 @@ interface DatasetCtx {
 
 const Ctx = createContext<DatasetCtx>({
   datasets: [],
+  datasetsWithAnalysis: [],
   selectedDatasetId: null,
   setSelectedDatasetId: () => {},
   selectedAnalysis: null,
   loading: false,
+  lastRefreshedAt: null,
   refresh: async () => {},
   analysisStatus: "idle",
   analysisError: null,
