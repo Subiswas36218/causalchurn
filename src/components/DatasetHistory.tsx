@@ -733,6 +733,65 @@ function CompareView({
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [exporting, setExporting] = useState<"csv" | "png" | null>(null);
 
+  type SortKey = "metric" | "a" | "b" | "delta" | "p" | "stars";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("metric");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const starRank = (p: number | null | undefined): number => {
+    if (p === null || p === undefined || !Number.isFinite(p)) return -1;
+    if (p < 0.001) return 3;
+    if (p < 0.01) return 2;
+    if (p < 0.05) return 1;
+    return 0;
+  };
+
+  const sortedMetrics = useMemo(() => {
+    const arr = [...metrics];
+    const dir = sortDir === "asc" ? 1 : -1;
+    const valOf = (m: typeof metrics[number]): number | string | null => {
+      switch (sortKey) {
+        case "metric":
+          return m.label;
+        case "a":
+          return m.av;
+        case "b":
+          return m.bv;
+        case "delta":
+          return m.diffTest?.diff ?? null;
+        case "p":
+          return m.diffTest?.p ?? null;
+        case "stars":
+          return starRank(m.diffTest?.p);
+      }
+    };
+    arr.sort((x, y) => {
+      const vx = valOf(x);
+      const vy = valOf(y);
+      // null/NaN values always sort to the bottom regardless of dir
+      const nx = vx === null || (typeof vx === "number" && !Number.isFinite(vx));
+      const ny = vy === null || (typeof vy === "number" && !Number.isFinite(vy));
+      if (nx && ny) return 0;
+      if (nx) return 1;
+      if (ny) return -1;
+      if (typeof vx === "string" && typeof vy === "string") {
+        return vx.localeCompare(vy) * dir;
+      }
+      return ((vx as number) - (vy as number)) * dir;
+    });
+    return arr;
+  }, [metrics, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // Numeric columns feel more useful descending by default; metric label asc.
+      setSortDir(key === "metric" ? "asc" : "desc");
+    }
+  };
+
   const handleCsv = () => {
     setExporting("csv");
     try {
