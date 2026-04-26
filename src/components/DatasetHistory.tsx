@@ -720,6 +720,46 @@ function buildCompareCsv(
   return toCsv([header, ...rows]);
 }
 
+interface SortableThProps {
+  label: string;
+  sortKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  activeKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  dir: "asc" | "desc";
+  onSort: (key: SortableThProps["sortKey"]) => void;
+  align: "left" | "right";
+}
+
+function SortableTh({ label, sortKey, activeKey, dir, onSort, align }: SortableThProps) {
+  const isActive = activeKey === sortKey;
+  const ariaSort: React.AriaAttributes["aria-sort"] = isActive
+    ? dir === "asc"
+      ? "ascending"
+      : "descending"
+    : "none";
+  const Icon = !isActive ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      scope="col"
+      aria-sort={ariaSort}
+      className={cn("px-4 py-2 font-medium", align === "left" ? "text-left" : "text-right")}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          align === "right" && "flex-row-reverse",
+          isActive && "text-foreground",
+        )}
+        aria-label={`Sort by ${label}${isActive ? `, currently ${dir === "asc" ? "ascending" : "descending"}` : ""}`}
+      >
+        <span>{label}</span>
+        <Icon className={cn("h-3 w-3", isActive ? "opacity-100" : "opacity-50")} aria-hidden="true" />
+      </button>
+    </th>
+  );
+}
+
 function CompareView({
   a,
   b,
