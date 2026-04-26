@@ -240,6 +240,8 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <DatasetBanner />
+
       <StatusBanner />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
