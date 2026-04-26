@@ -23,6 +23,31 @@ function classifySegment(uplift: number, baselineRisk: number): string {
   return "lost_cause";
 }
 
+function parseCsv(text: string): CsvRow[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(",").map((h) => h.trim());
+  const numericCols = new Set([
+    "treatment",
+    "churn",
+    "tenure",
+    "support_tickets",
+    "discount",
+    "monthly_charges",
+  ]);
+  const out: CsvRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(",");
+    const row: Record<string, unknown> = {};
+    header.forEach((h, idx) => {
+      const raw = (cells[idx] ?? "").trim();
+      row[h] = numericCols.has(h) ? Number(raw) : raw;
+    });
+    out.push(row as unknown as CsvRow);
+  }
+  return out;
+}
+
 // Lightweight fallback causal analysis (used when no external Python API is configured).
 // Computes simple difference-in-means ATE + heuristic uplift per row.
 function localAnalyze(rows: CsvRow[]) {
@@ -182,14 +207,14 @@ Deno.serve(async (req) => {
     const userId = claimsData.claims.sub as string;
 
     const body = await req.json();
-    const { dataset_id, rows } = body as {
+    const { dataset_id, rows: rowsFromBody } = body as {
       dataset_id: string;
-      rows: CsvRow[];
+      rows?: CsvRow[];
     };
 
-    if (!dataset_id || !Array.isArray(rows) || rows.length === 0) {
+    if (!dataset_id) {
       return new Response(
-        JSON.stringify({ error: "dataset_id and rows[] are required" }),
+        JSON.stringify({ error: "dataset_id is required" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -198,6 +223,27 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, supabaseService);
+
+    // Resolve rows: prefer body, else fetch CSV from storage (retry path)
+    let rows: CsvRow[] = Array.isArray(rowsFromBody) ? rowsFromBody : [];
+    if (rows.length === 0) {
+      const { data: ds, error: dsErr } = await admin
+        .from("datasets")
+        .select("storage_path,user_id")
+        .eq("id", dataset_id)
+        .single();
+      if (dsErr || !ds) throw new Error("Dataset not found");
+      if (ds.user_id !== userId) throw new Error("Forbidden");
+
+      const { data: file, error: dlErr } = await admin.storage
+        .from("datasets")
+        .download(ds.storage_path);
+      if (dlErr || !file) throw new Error(`Failed to download CSV: ${dlErr?.message ?? "unknown"}`);
+
+      const text = await file.text();
+      rows = parseCsv(text);
+      if (rows.length === 0) throw new Error("CSV is empty or could not be parsed");
+    }
 
     // Insert pending analysis row first so the client can poll for status
     const { data: pending, error: pErr } = await admin
@@ -238,7 +284,8 @@ Deno.serve(async (req) => {
         results = localAnalyze(rows);
       }
 
-      // Update analysis row with results
+      // Update analysis row with results (include finished_at so the UI can show runtime)
+      const finishedAt = new Date().toISOString();
       const { error: uErr } = await admin
         .from("analyses")
         .update({
@@ -246,7 +293,7 @@ Deno.serve(async (req) => {
           ate: results.ate,
           ate_ci_low: results.ate_ci_low,
           ate_ci_high: results.ate_ci_high,
-          results_json: results,
+          results_json: { ...results, finished_at: finishedAt },
           error_message: null,
         })
         .eq("id", analysisId);
