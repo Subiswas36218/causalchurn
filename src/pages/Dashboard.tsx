@@ -48,6 +48,7 @@ export default function Dashboard() {
     setAnalysisStatus,
     setAnalysisError,
     refresh,
+    lastRefreshedAt,
   } = useDataset();
 
   const selectedDataset = useMemo(
