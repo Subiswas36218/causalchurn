@@ -55,6 +55,7 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   Minus,
   Timer,
   Download,
