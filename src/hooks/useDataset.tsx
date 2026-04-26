@@ -21,6 +21,8 @@ export interface AnalysisRow {
   created_at: string;
 }
 
+export type AnalysisStatus = "idle" | "uploading" | "analyzing" | "complete" | "error";
+
 interface DatasetCtx {
   datasets: DatasetRow[];
   selectedDatasetId: string | null;
@@ -28,6 +30,10 @@ interface DatasetCtx {
   selectedAnalysis: AnalysisRow | null;
   loading: boolean;
   refresh: () => Promise<void>;
+  analysisStatus: AnalysisStatus;
+  analysisError: string | null;
+  setAnalysisStatus: (s: AnalysisStatus) => void;
+  setAnalysisError: (e: string | null) => void;
 }
 
 const Ctx = createContext<DatasetCtx>({
@@ -37,6 +43,10 @@ const Ctx = createContext<DatasetCtx>({
   selectedAnalysis: null,
   loading: false,
   refresh: async () => {},
+  analysisStatus: "idle",
+  analysisError: null,
+  setAnalysisStatus: () => {},
+  setAnalysisError: () => {},
 });
 
 export function DatasetProvider({ children }: { children: ReactNode }) {
@@ -47,6 +57,8 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
   );
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisRow | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>("idle");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const setSelectedDatasetId = (id: string | null) => {
     _setSelectedDatasetId(id);
@@ -95,6 +107,10 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
         selectedAnalysis,
         loading,
         refresh,
+        analysisStatus,
+        analysisError,
+        setAnalysisStatus,
+        setAnalysisError,
       }}
     >
       {children}

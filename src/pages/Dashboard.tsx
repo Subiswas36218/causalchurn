@@ -5,7 +5,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Users, TrendingDown, TrendingUp, Activity, Target } from "lucide-react";
+import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const COLORS = ["hsl(217 91% 60%)", "hsl(270 91% 65%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)"];
 
@@ -34,9 +35,69 @@ const tooltipStyle = {
 };
 
 export default function Dashboard() {
-  const { selectedAnalysis } = useDataset();
+  const { selectedAnalysis, analysisStatus, analysisError, setAnalysisStatus, setAnalysisError } = useDataset();
+
+  const StatusBanner = () => {
+    if (analysisStatus === "uploading" || analysisStatus === "analyzing") {
+      return (
+        <Card className="glass-card border-primary/40 bg-primary/5">
+          <CardContent className="flex items-center gap-3 p-4">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <div className="flex-1">
+              <div className="text-sm font-medium">
+                {analysisStatus === "uploading" ? "Uploading dataset…" : "Analyzing — running causal model…"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                This usually takes a few seconds. Results will appear automatically.
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    if (analysisStatus === "error" && analysisError) {
+      return (
+        <Card className="glass-card border-destructive/40 bg-destructive/5">
+          <CardContent className="flex items-start gap-3 p-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-destructive">Analysis failed</div>
+              <div className="mt-1 break-words text-xs text-destructive/90 font-mono">
+                {analysisError}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => {
+                setAnalysisStatus("idle");
+                setAnalysisError(null);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return null;
+  };
 
   if (!selectedAnalysis?.results_json) {
+    if (analysisStatus === "uploading" || analysisStatus === "analyzing" || analysisStatus === "error") {
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+            <p className="text-sm text-muted-foreground">
+              Overview of churn metrics and treatment effectiveness.
+            </p>
+          </div>
+          <StatusBanner />
+        </div>
+      );
+    }
     return <EmptyState />;
   }
 
@@ -72,6 +133,8 @@ export default function Dashboard() {
           Overview of churn metrics and treatment effectiveness.
         </p>
       </div>
+
+      <StatusBanner />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi icon={Users} label="Total customers" value={r.total_customers.toLocaleString()} />
