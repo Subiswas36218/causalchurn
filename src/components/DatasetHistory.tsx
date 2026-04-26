@@ -172,6 +172,171 @@ function DiffArrow({ delta, lowerIsBetter }: { delta: number | null; lowerIsBett
   );
 }
 
+interface MetricRow {
+  key: string;
+  label: string;
+  av: number | null;
+  bv: number | null;
+  lowerIsBetter: boolean;
+  fmt: (n: number | null | undefined) => string;
+  deltaFmt: (n: number | null | undefined) => string;
+}
+
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--popover))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  fontSize: "12px",
+  color: "hsl(var(--popover-foreground))",
+};
+
+function CompareTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const isPp = label === "ATE";
+  const fmt = (v: number) =>
+    isPp ? `${v > 0 ? "+" : ""}${v.toFixed(2)}pp` : `${v.toFixed(2)}%`;
+  const a = payload.find((p: any) => p.dataKey === "a")?.value;
+  const b = payload.find((p: any) => p.dataKey === "b")?.value;
+  const delta = a !== undefined && b !== undefined ? b - a : null;
+  return (
+    <div
+      className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
+      style={{ borderColor: "hsl(var(--border))" }}
+    >
+      <div className="mb-1 font-medium">{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2">
+          <span
+            className="inline-block h-2 w-2 rounded-sm"
+            style={{ background: p.color }}
+          />
+          <span className="text-muted-foreground">
+            {p.dataKey === "a" ? "Run A" : "Run B"}:
+          </span>
+          <span className="tabular-nums">{fmt(p.value)}</span>
+        </div>
+      ))}
+      {delta !== null && (
+        <div className="mt-1 border-t border-border/50 pt-1 text-muted-foreground">
+          Δ (B − A):{" "}
+          <span className="tabular-nums text-foreground">
+            {delta > 0 ? "+" : ""}
+            {isPp ? delta.toFixed(2) + "pp" : delta.toFixed(2) + "%"}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CompareCharts({
+  a,
+  b,
+  metrics,
+}: {
+  a: DatasetWithAnalysis;
+  b: DatasetWithAnalysis;
+  metrics: MetricRow[];
+}) {
+  // Churn-rate chart: percent values (overall/control/treated)
+  const churnData = metrics
+    .filter((m) => m.key !== "ate" && m.av !== null && m.bv !== null)
+    .map((m) => ({
+      metric:
+        m.key === "overall" ? "Overall" : m.key === "control" ? "Control" : "Treated",
+      a: +((m.av as number) * 100).toFixed(2),
+      b: +((m.bv as number) * 100).toFixed(2),
+    }));
+
+  // ATE chart: percentage points (can be negative — negative = treatment reduces churn)
+  const aAte = metrics.find((m) => m.key === "ate")?.av ?? null;
+  const bAte = metrics.find((m) => m.key === "ate")?.bv ?? null;
+  const ateData =
+    aAte !== null && bAte !== null
+      ? [{ metric: "ATE", a: +(aAte * 100).toFixed(2), b: +(bAte * 100).toFixed(2) }]
+      : [];
+
+  const aColor = "hsl(217 91% 60%)";
+  const bColor = "hsl(270 91% 65%)";
+  const aName = `A · ${a.name}`;
+  const bName = `B · ${b.name}`;
+
+  return (
+    <div className="grid gap-4 px-4 pt-2 lg:grid-cols-[2fr_1fr]">
+      <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs font-medium">Churn rate by group (%)</div>
+          <div className="text-[10px] text-muted-foreground">Lower is better</div>
+        </div>
+        <div className="h-[220px]">
+          {churnData.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              No churn data available for one of the runs.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={churnData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="metric"
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={11}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={11}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <RTooltip content={<CompareTooltip />} cursor={{ fill: "hsl(var(--muted)/0.3)" }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="square" />
+                <Bar dataKey="a" name={aName} fill={aColor} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="b" name={bName} fill={bColor} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/40 bg-card/40 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs font-medium">ATE (pp)</div>
+          <div className="text-[10px] text-muted-foreground">Negative = reduces churn</div>
+        </div>
+        <div className="h-[220px]">
+          {ateData.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              No ATE available for one of the runs.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ateData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="metric"
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={11}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke="hsl(var(--muted-foreground))"
+                  fontSize={11}
+                  tickFormatter={(v) => `${v}pp`}
+                />
+                <ReferenceLine y={0} stroke="hsl(var(--border))" />
+                <RTooltip content={<CompareTooltip />} cursor={{ fill: "hsl(var(--muted)/0.3)" }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="square" />
+                <Bar dataKey="a" name={aName} fill={aColor} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="b" name={bName} fill={bColor} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CompareView({
   a,
   b,
