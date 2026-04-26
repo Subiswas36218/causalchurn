@@ -68,6 +68,8 @@ export default function UploadPage() {
   const runAnalysis = async () => {
     if (!user || rows.length === 0) return;
     setRunning(true);
+    setAnalysisError(null);
+    setAnalysisStatus("uploading");
     try {
       // Upload CSV file
       const path = `${user.id}/${Date.now()}_${fileName || "dataset.csv"}`;
@@ -90,6 +92,11 @@ export default function UploadPage() {
         .single();
       if (dsErr) throw dsErr;
 
+      // Set selection + navigate immediately so user sees status on dashboard
+      setSelectedDatasetId(ds.id);
+      setAnalysisStatus("analyzing");
+      navigate("/dashboard");
+
       // Call edge function
       const { data, error } = await supabase.functions.invoke("analyze", {
         body: { dataset_id: ds.id, rows },
@@ -97,11 +104,13 @@ export default function UploadPage() {
       if (error) throw error;
 
       toast({ title: "Analysis complete", description: `ATE: ${(data.results.ate * 100).toFixed(2)}%` });
-      setSelectedDatasetId(ds.id);
+      setAnalysisStatus("complete");
       await refresh();
-      navigate("/dashboard");
     } catch (e: any) {
-      toast({ title: "Analysis failed", description: e.message ?? String(e), variant: "destructive" });
+      const msg = e?.message ?? String(e);
+      setAnalysisError(msg);
+      setAnalysisStatus("error");
+      toast({ title: "Analysis failed", description: msg, variant: "destructive" });
     } finally {
       setRunning(false);
     }
