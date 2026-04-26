@@ -192,6 +192,15 @@ function DiffArrow({ delta, lowerIsBetter }: { delta: number | null; lowerIsBett
   );
 }
 
+interface MetricStat {
+  /** Standard error of the value itself (proportion or ATE). */
+  se: number | null;
+  /** 95% CI for the value. */
+  ci: { low: number; high: number } | null;
+  /** Sample size used to derive SE/CI (proportions only). */
+  n: number | null;
+}
+
 interface MetricRow {
   key: string;
   label: string;
@@ -200,49 +209,93 @@ interface MetricRow {
   lowerIsBetter: boolean;
   fmt: (n: number | null | undefined) => string;
   deltaFmt: (n: number | null | undefined) => string;
+  /** Per-run statistics for displaying CIs / sample sizes. */
+  aStat: MetricStat;
+  bStat: MetricStat;
+  /** Significance test for B − A (two-prop z-test, or diff-of-ATEs). */
+  diffTest:
+    | {
+        diff: number;
+        se: number;
+        ciLow: number;
+        ciHigh: number;
+        z: number;
+        p: number;
+      }
+    | null;
+  /** True when the metric is expressed in percentage points (ATE). */
+  isPp: boolean;
 }
 
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--popover))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "8px",
-  fontSize: "12px",
-  color: "hsl(var(--popover-foreground))",
-};
+/** Format a CI tuple as either pp or % depending on metric. */
+function fmtCI(ci: { low: number; high: number } | null, isPp: boolean): string {
+  if (!ci) return "—";
+  const f = (x: number) =>
+    isPp
+      ? `${x > 0 ? "+" : ""}${(x * 100).toFixed(2)}pp`
+      : `${(x * 100).toFixed(2)}%`;
+  return `[${f(ci.low)}, ${f(ci.high)}]`;
+}
 
-function CompareTooltip({ active, payload, label }: any) {
+function CompareTooltip({ active, payload, label, metricsByLabel }: any) {
   if (!active || !payload?.length) return null;
-  const isPp = label === "ATE";
-  const fmt = (v: number) =>
+  const m: MetricRow | undefined = metricsByLabel?.[label];
+  const isPp = m?.isPp ?? label === "ATE";
+  const fmtVal = (v: number) =>
     isPp ? `${v > 0 ? "+" : ""}${v.toFixed(2)}pp` : `${v.toFixed(2)}%`;
-  const a = payload.find((p: any) => p.dataKey === "a")?.value;
-  const b = payload.find((p: any) => p.dataKey === "b")?.value;
-  const delta = a !== undefined && b !== undefined ? b - a : null;
+  const t = m?.diffTest ?? null;
+  const stars = t ? sigStars(t.p) : "";
+  const sigClass =
+    !t || stars === "ns" ? "text-muted-foreground" : "text-success";
   return (
     <div
+      role="tooltip"
       className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
       style={{ borderColor: "hsl(var(--border))" }}
     >
       <div className="mb-1 font-medium">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span
-            className="inline-block h-2 w-2 rounded-sm"
-            style={{ background: p.color }}
-          />
-          <span className="text-muted-foreground">
-            {p.dataKey === "a" ? "Run A" : "Run B"}:
-          </span>
-          <span className="tabular-nums">{fmt(p.value)}</span>
-        </div>
-      ))}
-      {delta !== null && (
-        <div className="mt-1 border-t border-border/50 pt-1 text-muted-foreground">
-          Δ (B − A):{" "}
-          <span className="tabular-nums text-foreground">
-            {delta > 0 ? "+" : ""}
-            {isPp ? delta.toFixed(2) + "pp" : delta.toFixed(2) + "%"}
-          </span>
+      {payload.map((p: any) => {
+        const stat = p.dataKey === "a" ? m?.aStat : m?.bStat;
+        return (
+          <div key={p.dataKey} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block h-2 w-2 rounded-sm"
+                style={{ background: p.color }}
+                aria-hidden="true"
+              />
+              <span className="text-muted-foreground">
+                {p.dataKey === "a" ? "Run A" : "Run B"}:
+              </span>
+              <span className="tabular-nums">{fmtVal(p.value)}</span>
+            </div>
+            {stat?.ci && (
+              <div className="pl-4 text-[10px] text-muted-foreground">
+                95% CI {fmtCI(stat.ci, isPp)}
+                {stat.n != null ? ` · n=${stat.n.toLocaleString()}` : ""}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {t && (
+        <div className="mt-1 space-y-0.5 border-t border-border/50 pt-1">
+          <div className="text-muted-foreground">
+            Δ (B − A):{" "}
+            <span className="tabular-nums text-foreground">
+              {t.diff > 0 ? "+" : ""}
+              {(t.diff * 100).toFixed(2)}pp
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            95% CI of Δ: [{(t.ciLow * 100).toFixed(2)}pp,{" "}
+            {(t.ciHigh * 100).toFixed(2)}pp]
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className="text-muted-foreground">p =</span>
+            <span className="tabular-nums">{formatP(t.p)}</span>
+            <span className={cn("font-semibold", sigClass)}>{stars}</span>
+          </div>
         </div>
       )}
     </div>
