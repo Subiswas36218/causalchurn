@@ -15,7 +15,7 @@ import { Upload, FileText, Sparkles, Loader2, AlertCircle, CheckCircle2, Trash2 
 export default function UploadPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { datasets, setSelectedDatasetId, refresh, selectedDatasetId } = useDataset();
+  const { datasets, setSelectedDatasetId, refresh, selectedDatasetId, setAnalysisStatus, setAnalysisError } = useDataset();
   const [parsing, setParsing] = useState(false);
   const [running, setRunning] = useState(false);
   const [rows, setRows] = useState<CsvRow[]>([]);
