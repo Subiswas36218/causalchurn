@@ -107,6 +107,10 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
         selectedAnalysis,
         loading,
         refresh,
+        analysisStatus,
+        analysisError,
+        setAnalysisStatus,
+        setAnalysisError,
       }}
     >
       {children}
