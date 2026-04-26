@@ -237,6 +237,7 @@ export default function Dashboard() {
           </div>
           <DatasetBanner />
           <StatusBanner />
+          <DatasetHistory />
         </div>
       );
     }
