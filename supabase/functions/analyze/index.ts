@@ -199,64 +199,90 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, supabaseService);
 
-    // Try external Python API if configured
-    const pythonApiUrl = Deno.env.get("PYTHON_CAUSAL_API_URL");
-    const pythonApiKey = Deno.env.get("PYTHON_CAUSAL_API_KEY");
-
-    let results: ReturnType<typeof localAnalyze>;
-    if (pythonApiUrl && pythonApiKey) {
-      try {
-        const res = await fetch(`${pythonApiUrl}/analyze`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${pythonApiKey}`,
-          },
-          body: JSON.stringify({ rows }),
-        });
-        if (!res.ok) throw new Error(`External API ${res.status}`);
-        results = await res.json();
-      } catch (e) {
-        console.warn("External API failed, falling back to local:", e);
-        results = localAnalyze(rows);
-      }
-    } else {
-      results = localAnalyze(rows);
-    }
-
-    // Insert analysis row
-    const { data: analysis, error: aErr } = await admin
+    // Insert pending analysis row first so the client can poll for status
+    const { data: pending, error: pErr } = await admin
       .from("analyses")
       .insert({
         dataset_id,
         user_id: userId,
-        status: "complete",
-        ate: results.ate,
-        ate_ci_low: results.ate_ci_low,
-        ate_ci_high: results.ate_ci_high,
-        results_json: results,
+        status: "pending",
       })
       .select()
       .single();
+    if (pErr) throw pErr;
+    const analysisId = pending.id as string;
 
-    if (aErr) throw aErr;
+    try {
+      // Try external Python API if configured
+      const pythonApiUrl = Deno.env.get("PYTHON_CAUSAL_API_URL");
+      const pythonApiKey = Deno.env.get("PYTHON_CAUSAL_API_KEY");
 
-    // Insert segments (cap to 5000 to keep payload manageable)
-    const segs = results.segments.slice(0, 5000).map((s) => ({
-      analysis_id: analysis.id,
-      user_id: userId,
-      customer_id: s.customer_id,
-      segment: s.segment,
-      predicted_uplift: s.predicted_uplift,
-      baseline_risk: s.baseline_risk,
-    }));
+      let results: ReturnType<typeof localAnalyze>;
+      if (pythonApiUrl && pythonApiKey) {
+        try {
+          const res = await fetch(`${pythonApiUrl}/analyze`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${pythonApiKey}`,
+            },
+            body: JSON.stringify({ rows }),
+          });
+          if (!res.ok) throw new Error(`External API ${res.status}`);
+          results = await res.json();
+        } catch (e) {
+          console.warn("External API failed, falling back to local:", e);
+          results = localAnalyze(rows);
+        }
+      } else {
+        results = localAnalyze(rows);
+      }
 
-    // Batch insert
-    const chunkSize = 500;
-    for (let i = 0; i < segs.length; i += chunkSize) {
-      const chunk = segs.slice(i, i + chunkSize);
-      const { error: sErr } = await admin.from("user_segments").insert(chunk);
-      if (sErr) throw sErr;
+      // Update analysis row with results
+      const { error: uErr } = await admin
+        .from("analyses")
+        .update({
+          status: "complete",
+          ate: results.ate,
+          ate_ci_low: results.ate_ci_low,
+          ate_ci_high: results.ate_ci_high,
+          results_json: results,
+          error_message: null,
+        })
+        .eq("id", analysisId);
+      if (uErr) throw uErr;
+
+      // Insert segments (cap to 5000 to keep payload manageable)
+      const segs = results.segments.slice(0, 5000).map((s) => ({
+        analysis_id: analysisId,
+        user_id: userId,
+        customer_id: s.customer_id,
+        segment: s.segment,
+        predicted_uplift: s.predicted_uplift,
+        baseline_risk: s.baseline_risk,
+      }));
+
+      const chunkSize = 500;
+      for (let i = 0; i < segs.length; i += chunkSize) {
+        const chunk = segs.slice(i, i + chunkSize);
+        const { error: sErr } = await admin.from("user_segments").insert(chunk);
+        if (sErr) throw sErr;
+      }
+
+      return new Response(
+        JSON.stringify({ analysis_id: analysisId, results }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    } catch (innerErr) {
+      const msg = innerErr instanceof Error ? innerErr.message : "Unknown error";
+      await admin
+        .from("analyses")
+        .update({ status: "error", error_message: msg })
+        .eq("id", analysisId);
+      throw innerErr;
     }
 
     return new Response(
