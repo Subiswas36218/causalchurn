@@ -281,6 +281,8 @@ export default function Dashboard() {
 
       <StatusBanner />
 
+      <DatasetHistory />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi icon={Users} label="Total customers" value={r.total_customers.toLocaleString()} />
         <Kpi
