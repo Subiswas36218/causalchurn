@@ -57,6 +57,8 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
   );
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisRow | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>("idle");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const setSelectedDatasetId = (id: string | null) => {
     _setSelectedDatasetId(id);
