@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import * as React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,10 +7,27 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useDataset, type DatasetWithAnalysis } from "@/hooks/useDataset";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import {
+  diffOfProportions,
+  ateZAndP,
+  diffOfAtes,
+  formatP,
+  sigStars,
+  proportionCI,
+} from "@/lib/stats";
+import { downloadNodeAsPng, downloadString, toCsv } from "@/lib/export";
 import {
   BarChart,
   Bar,
@@ -39,6 +57,9 @@ import {
   ArrowUp,
   Minus,
   Timer,
+  Download,
+  FileImage,
+  FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -172,6 +193,15 @@ function DiffArrow({ delta, lowerIsBetter }: { delta: number | null; lowerIsBett
   );
 }
 
+interface MetricStat {
+  /** Standard error of the value itself (proportion or ATE). */
+  se: number | null;
+  /** 95% CI for the value. */
+  ci: { low: number; high: number } | null;
+  /** Sample size used to derive SE/CI (proportions only). */
+  n: number | null;
+}
+
 interface MetricRow {
   key: string;
   label: string;
@@ -180,95 +210,233 @@ interface MetricRow {
   lowerIsBetter: boolean;
   fmt: (n: number | null | undefined) => string;
   deltaFmt: (n: number | null | undefined) => string;
+  /** Per-run statistics for displaying CIs / sample sizes. */
+  aStat: MetricStat;
+  bStat: MetricStat;
+  /** Significance test for B − A (two-prop z-test, or diff-of-ATEs). */
+  diffTest:
+    | {
+        diff: number;
+        se: number;
+        ciLow: number;
+        ciHigh: number;
+        z: number;
+        p: number;
+      }
+    | null;
+  /** True when the metric is expressed in percentage points (ATE). */
+  isPp: boolean;
 }
 
-const tooltipStyle = {
-  backgroundColor: "hsl(var(--popover))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "8px",
-  fontSize: "12px",
-  color: "hsl(var(--popover-foreground))",
-};
+/** Format a CI tuple as either pp or % depending on metric. */
+function fmtCI(ci: { low: number; high: number } | null, isPp: boolean): string {
+  if (!ci) return "—";
+  const f = (x: number) =>
+    isPp
+      ? `${x > 0 ? "+" : ""}${(x * 100).toFixed(2)}pp`
+      : `${(x * 100).toFixed(2)}%`;
+  return `[${f(ci.low)}, ${f(ci.high)}]`;
+}
 
-function CompareTooltip({ active, payload, label }: any) {
+function CompareTooltip({ active, payload, label, metricsByLabel }: any) {
   if (!active || !payload?.length) return null;
-  const isPp = label === "ATE";
-  const fmt = (v: number) =>
+  const m: MetricRow | undefined = metricsByLabel?.[label];
+  const isPp = m?.isPp ?? label === "ATE";
+  const fmtVal = (v: number) =>
     isPp ? `${v > 0 ? "+" : ""}${v.toFixed(2)}pp` : `${v.toFixed(2)}%`;
-  const a = payload.find((p: any) => p.dataKey === "a")?.value;
-  const b = payload.find((p: any) => p.dataKey === "b")?.value;
-  const delta = a !== undefined && b !== undefined ? b - a : null;
+  const t = m?.diffTest ?? null;
+  const stars = t ? sigStars(t.p) : "";
+  const sigClass =
+    !t || stars === "ns" ? "text-muted-foreground" : "text-success";
   return (
     <div
+      role="tooltip"
       className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md"
       style={{ borderColor: "hsl(var(--border))" }}
     >
       <div className="mb-1 font-medium">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span
-            className="inline-block h-2 w-2 rounded-sm"
-            style={{ background: p.color }}
-          />
-          <span className="text-muted-foreground">
-            {p.dataKey === "a" ? "Run A" : "Run B"}:
-          </span>
-          <span className="tabular-nums">{fmt(p.value)}</span>
-        </div>
-      ))}
-      {delta !== null && (
-        <div className="mt-1 border-t border-border/50 pt-1 text-muted-foreground">
-          Δ (B − A):{" "}
-          <span className="tabular-nums text-foreground">
-            {delta > 0 ? "+" : ""}
-            {isPp ? delta.toFixed(2) + "pp" : delta.toFixed(2) + "%"}
-          </span>
+      {payload.map((p: any) => {
+        const stat = p.dataKey === "a" ? m?.aStat : m?.bStat;
+        return (
+          <div key={p.dataKey} className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block h-2 w-2 rounded-sm"
+                style={{ background: p.color }}
+                aria-hidden="true"
+              />
+              <span className="text-muted-foreground">
+                {p.dataKey === "a" ? "Run A" : "Run B"}:
+              </span>
+              <span className="tabular-nums">{fmtVal(p.value)}</span>
+            </div>
+            {stat?.ci && (
+              <div className="pl-4 text-[10px] text-muted-foreground">
+                95% CI {fmtCI(stat.ci, isPp)}
+                {stat.n != null ? ` · n=${stat.n.toLocaleString()}` : ""}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {t && (
+        <div className="mt-1 space-y-0.5 border-t border-border/50 pt-1">
+          <div className="text-muted-foreground">
+            Δ (B − A):{" "}
+            <span className="tabular-nums text-foreground">
+              {t.diff > 0 ? "+" : ""}
+              {(t.diff * 100).toFixed(2)}pp
+            </span>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            95% CI of Δ: [{(t.ciLow * 100).toFixed(2)}pp,{" "}
+            {(t.ciHigh * 100).toFixed(2)}pp]
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className="text-muted-foreground">p =</span>
+            <span className="tabular-nums">{formatP(t.p)}</span>
+            <span className={cn("font-semibold", sigClass)}>{stars}</span>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function CompareCharts({
-  a,
-  b,
-  metrics,
-}: {
-  a: DatasetWithAnalysis;
-  b: DatasetWithAnalysis;
-  metrics: MetricRow[];
-}) {
-  // Churn-rate chart: percent values (overall/control/treated)
-  const churnData = metrics
-    .filter((m) => m.key !== "ate" && m.av !== null && m.bv !== null)
-    .map((m) => ({
-      metric:
-        m.key === "overall" ? "Overall" : m.key === "control" ? "Control" : "Treated",
-      a: +((m.av as number) * 100).toFixed(2),
-      b: +((m.bv as number) * 100).toFixed(2),
-    }));
+/** Stable accent colors for run A and run B. */
+const A_COLOR = "hsl(217 91% 60%)";
+const B_COLOR = "hsl(270 91% 65%)";
 
-  // ATE chart: percentage points (can be negative — negative = treatment reduces churn)
-  const aAte = metrics.find((m) => m.key === "ate")?.av ?? null;
-  const bAte = metrics.find((m) => m.key === "ate")?.bv ?? null;
+/**
+ * A11y-friendly text summary of a metric (used as aria-label/sr-only desc).
+ * Includes values, CIs, and significance for screen readers.
+ */
+function metricA11ySummary(m: MetricRow): string {
+  const av = m.av != null ? m.fmt(m.av) : "n/a";
+  const bv = m.bv != null ? m.fmt(m.bv) : "n/a";
+  const aCi = m.aStat.ci ? `, 95% CI ${fmtCI(m.aStat.ci, m.isPp)}` : "";
+  const bCi = m.bStat.ci ? `, 95% CI ${fmtCI(m.bStat.ci, m.isPp)}` : "";
+  let sig = "";
+  if (m.diffTest) {
+    const stars = sigStars(m.diffTest.p);
+    sig = `. Difference B minus A is ${m.deltaFmt(m.diffTest.diff)}, 95% CI [${(m.diffTest.ciLow * 100).toFixed(2)}pp, ${(m.diffTest.ciHigh * 100).toFixed(2)}pp], p ${formatP(m.diffTest.p)}${stars && stars !== "ns" ? ` (${stars})` : ""}`;
+  }
+  return `${m.label}: Run A ${av}${aCi}; Run B ${bv}${bCi}${sig}.`;
+}
+
+/** Compact significance pill rendered above each chart. */
+function SigPill({ p, label }: { p: number | null | undefined; label: string }) {
+  if (p === null || p === undefined || !Number.isFinite(p)) {
+    return (
+      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+        {label}: insufficient data
+      </span>
+    );
+  }
+  const stars = sigStars(p);
+  const cls =
+    stars === "ns"
+      ? "bg-muted text-muted-foreground"
+      : "bg-success/15 text-success";
+  return (
+    <span
+      className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums", cls)}
+      title={`Two-sided p-value for B − A`}
+    >
+      {label}: p {formatP(p)} {stars}
+    </span>
+  );
+}
+
+const CompareCharts = React.forwardRef<
+  HTMLDivElement,
+  {
+    a: DatasetWithAnalysis;
+    b: DatasetWithAnalysis;
+    metrics: MetricRow[];
+  }
+>(function CompareCharts({ a, b, metrics }, ref) {
+  // Churn-rate chart: percent values (overall/control/treated)
+  const churnMetrics = metrics.filter(
+    (m) => m.key !== "ate" && m.av !== null && m.bv !== null
+  );
+  const churnData = churnMetrics.map((m) => ({
+    metric:
+      m.key === "overall" ? "Overall" : m.key === "control" ? "Control" : "Treated",
+    a: +((m.av as number) * 100).toFixed(2),
+    b: +((m.bv as number) * 100).toFixed(2),
+  }));
+
+  // ATE chart: percentage points (negative ATE = treatment reduces churn)
+  const ateMetric = metrics.find((m) => m.key === "ate");
+  const aAte = ateMetric?.av ?? null;
+  const bAte = ateMetric?.bv ?? null;
   const ateData =
     aAte !== null && bAte !== null
       ? [{ metric: "ATE", a: +(aAte * 100).toFixed(2), b: +(bAte * 100).toFixed(2) }]
       : [];
 
-  const aColor = "hsl(217 91% 60%)";
-  const bColor = "hsl(270 91% 65%)";
   const aName = `A · ${a.name}`;
   const bName = `B · ${b.name}`;
 
+  // Map label → MetricRow so the tooltip can pull CIs/p-values
+  const metricsByLabel = useMemo(() => {
+    const out: Record<string, MetricRow> = {};
+    for (const m of metrics) {
+      const lbl =
+        m.key === "ate"
+          ? "ATE"
+          : m.key === "overall"
+            ? "Overall"
+            : m.key === "control"
+              ? "Control"
+              : "Treated";
+      out[lbl] = m;
+    }
+    return out;
+  }, [metrics]);
+
+  // Worst (smallest) p-value per chart used for the headline pill
+  const churnHeadlineP = churnMetrics
+    .map((m) => m.diffTest?.p)
+    .filter((p): p is number => Number.isFinite(p as number))
+    .sort((x, y) => x - y)[0];
+  const ateHeadlineP = ateMetric?.diffTest?.p;
+
+  // Sortable, screen-reader-friendly description of the entire chart block
+  const churnSummary = churnMetrics.map(metricA11ySummary).join(" ");
+  const ateSummary = ateMetric ? metricA11ySummary(ateMetric) : "";
+
   return (
-    <div className="grid gap-4 px-4 pt-2 lg:grid-cols-[2fr_1fr]">
-      <div className="rounded-lg border border-border/40 bg-card/40 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-xs font-medium">Churn rate by group (%)</div>
-          <div className="text-[10px] text-muted-foreground">Lower is better</div>
-        </div>
-        <div className="h-[220px]">
+    <div
+      ref={ref}
+      className="grid gap-4 px-4 pt-2 lg:grid-cols-[2fr_1fr]"
+      role="group"
+      aria-label="Side-by-side comparison charts for the two selected runs"
+    >
+      <figure
+        className="rounded-lg border border-border/40 bg-card/40 p-3"
+        aria-labelledby="compare-churn-title"
+        aria-describedby="compare-churn-desc"
+      >
+        <figcaption className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div id="compare-churn-title" className="text-xs font-medium">
+            Churn rate by group (%)
+          </div>
+          <div className="flex items-center gap-2">
+            <SigPill p={churnHeadlineP} label="Δ churn" />
+            <span className="text-[10px] text-muted-foreground">Lower is better</span>
+          </div>
+        </figcaption>
+        <p id="compare-churn-desc" className="sr-only">
+          Bar chart comparing churn rates between {aName} and {bName}. {churnSummary}
+        </p>
+        <div
+          className="h-[220px]"
+          tabIndex={0}
+          role="img"
+          aria-label={`Churn rate comparison between Run A "${a.name}" and Run B "${b.name}". ${churnSummary}`}
+        >
           {churnData.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               No churn data available for one of the runs.
@@ -288,22 +456,55 @@ function CompareCharts({
                   fontSize={11}
                   tickFormatter={(v) => `${v}%`}
                 />
-                <RTooltip content={<CompareTooltip />} cursor={{ fill: "hsl(var(--muted)/0.3)" }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconType="square" />
-                <Bar dataKey="a" name={aName} fill={aColor} radius={[6, 6, 0, 0]} />
-                <Bar dataKey="b" name={bName} fill={bColor} radius={[6, 6, 0, 0]} />
+                <RTooltip
+                  content={<CompareTooltip metricsByLabel={metricsByLabel} />}
+                  cursor={{ fill: "hsl(var(--muted)/0.3)" }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: 11 }}
+                  iconType="square"
+                  formatter={(value) => (
+                    <span
+                      tabIndex={0}
+                      className="inline-block focus:outline-none focus:underline"
+                    >
+                      {value}
+                    </span>
+                  )}
+                />
+                <Bar dataKey="a" name={aName} fill={A_COLOR} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="b" name={bName} fill={B_COLOR} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
-      </div>
+      </figure>
 
-      <div className="rounded-lg border border-border/40 bg-card/40 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-xs font-medium">ATE (pp)</div>
-          <div className="text-[10px] text-muted-foreground">Negative = reduces churn</div>
-        </div>
-        <div className="h-[220px]">
+      <figure
+        className="rounded-lg border border-border/40 bg-card/40 p-3"
+        aria-labelledby="compare-ate-title"
+        aria-describedby="compare-ate-desc"
+      >
+        <figcaption className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div id="compare-ate-title" className="text-xs font-medium">
+            ATE (pp)
+          </div>
+          <div className="flex items-center gap-2">
+            <SigPill p={ateHeadlineP} label="Δ ATE" />
+            <span className="text-[10px] text-muted-foreground">
+              Negative = reduces churn
+            </span>
+          </div>
+        </figcaption>
+        <p id="compare-ate-desc" className="sr-only">
+          Bar chart comparing the average treatment effect between {aName} and {bName}. {ateSummary}
+        </p>
+        <div
+          className="h-[220px]"
+          tabIndex={0}
+          role="img"
+          aria-label={`ATE comparison between Run A "${a.name}" and Run B "${b.name}". ${ateSummary}`}
+        >
           {ateData.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               No ATE available for one of the runs.
@@ -324,17 +525,198 @@ function CompareCharts({
                   tickFormatter={(v) => `${v}pp`}
                 />
                 <ReferenceLine y={0} stroke="hsl(var(--border))" />
-                <RTooltip content={<CompareTooltip />} cursor={{ fill: "hsl(var(--muted)/0.3)" }} />
-                <Legend wrapperStyle={{ fontSize: 11 }} iconType="square" />
-                <Bar dataKey="a" name={aName} fill={aColor} radius={[6, 6, 0, 0]} />
-                <Bar dataKey="b" name={bName} fill={bColor} radius={[6, 6, 0, 0]} />
+                <RTooltip
+                  content={<CompareTooltip metricsByLabel={metricsByLabel} />}
+                  cursor={{ fill: "hsl(var(--muted)/0.3)" }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: 11 }}
+                  iconType="square"
+                  formatter={(value) => (
+                    <span
+                      tabIndex={0}
+                      className="inline-block focus:outline-none focus:underline"
+                    >
+                      {value}
+                    </span>
+                  )}
+                />
+                <Bar dataKey="a" name={aName} fill={A_COLOR} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="b" name={bName} fill={B_COLOR} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
-      </div>
+      </figure>
     </div>
   );
+});
+
+/**
+ * Build the metric rows for the compare view, including SE/CI/p-values
+ * for each proportion (Wald) and the ATE (recovered from the stored CI).
+ */
+function buildMetrics(a: DatasetWithAnalysis, b: DatasetWithAnalysis): MetricRow[] {
+  const ar = (a.latest_analysis?.results_json ?? {}) as any;
+  const br = (b.latest_analysis?.results_json ?? {}) as any;
+
+  const aTotal = (ar.treated_count ?? 0) + (ar.control_count ?? 0);
+  const bTotal = (br.treated_count ?? 0) + (br.control_count ?? 0);
+
+  const propRow = (
+    key: "overall" | "control" | "treated",
+    label: string,
+    av: number | null,
+    bv: number | null,
+    an: number | null,
+    bn: number | null
+  ): MetricRow => {
+    const aCi = av !== null && an && an > 0 ? proportionCI(av, an) : null;
+    const bCi = bv !== null && bn && bn > 0 ? proportionCI(bv, bn) : null;
+    const diffTest =
+      av !== null && bv !== null && an && bn && an > 0 && bn > 0
+        ? diffOfProportions(bv, bn, av, an)
+        : null;
+    return {
+      key,
+      label,
+      av,
+      bv,
+      lowerIsBetter: true,
+      fmt: pct,
+      deltaFmt: pp,
+      isPp: false,
+      aStat: { se: null, ci: aCi, n: an ?? null },
+      bStat: { se: null, ci: bCi, n: bn ?? null },
+      diffTest,
+    };
+  };
+
+  const aAte = a.latest_analysis?.ate ?? ar?.ate ?? null;
+  const bAte = b.latest_analysis?.ate ?? br?.ate ?? null;
+  const aAteCiLow = a.latest_analysis?.ate_ci_low ?? ar?.ate_ci_low ?? null;
+  const aAteCiHigh = a.latest_analysis?.ate_ci_high ?? ar?.ate_ci_high ?? null;
+  const bAteCiLow = b.latest_analysis?.ate_ci_low ?? br?.ate_ci_low ?? null;
+  const bAteCiHigh = b.latest_analysis?.ate_ci_high ?? br?.ate_ci_high ?? null;
+  const aAteStats =
+    aAte !== null ? ateZAndP(aAte, aAteCiLow, aAteCiHigh) : null;
+  const bAteStats =
+    bAte !== null ? ateZAndP(bAte, bAteCiLow, bAteCiHigh) : null;
+  const ateDiffTest =
+    aAte !== null && bAte !== null && aAteStats && bAteStats
+      ? diffOfAtes(
+          { ate: aAte, se: aAteStats.se },
+          { ate: bAte, se: bAteStats.se }
+        )
+      : null;
+
+  return [
+    propRow(
+      "overall",
+      "Overall churn",
+      ar?.overall_churn_rate ?? null,
+      br?.overall_churn_rate ?? null,
+      aTotal || null,
+      bTotal || null
+    ),
+    propRow(
+      "control",
+      "Control churn",
+      ar?.control_churn_rate ?? null,
+      br?.control_churn_rate ?? null,
+      ar?.control_count ?? null,
+      br?.control_count ?? null
+    ),
+    propRow(
+      "treated",
+      "Treated churn",
+      ar?.treated_churn_rate ?? null,
+      br?.treated_churn_rate ?? null,
+      ar?.treated_count ?? null,
+      br?.treated_count ?? null
+    ),
+    {
+      key: "ate",
+      label: "ATE (treatment effect)",
+      av: aAte,
+      bv: bAte,
+      lowerIsBetter: true, // negative ATE = treatment reduces churn = better
+      fmt: pp,
+      deltaFmt: pp,
+      isPp: true,
+      aStat: {
+        se: aAteStats?.se ?? null,
+        ci:
+          aAteCiLow !== null && aAteCiHigh !== null
+            ? { low: aAteCiLow, high: aAteCiHigh }
+            : null,
+        n: null,
+      },
+      bStat: {
+        se: bAteStats?.se ?? null,
+        ci:
+          bAteCiLow !== null && bAteCiHigh !== null
+            ? { low: bAteCiLow, high: bAteCiHigh }
+            : null,
+        n: null,
+      },
+      diffTest: ateDiffTest,
+    },
+  ];
+}
+
+/** Build the CSV content for the comparison export. */
+function buildCompareCsv(
+  a: DatasetWithAnalysis,
+  b: DatasetWithAnalysis,
+  metrics: MetricRow[]
+): string {
+  const header = [
+    "metric",
+    "unit",
+    "run_a_name",
+    "run_a_value",
+    "run_a_ci_low",
+    "run_a_ci_high",
+    "run_a_n",
+    "run_b_name",
+    "run_b_value",
+    "run_b_ci_low",
+    "run_b_ci_high",
+    "run_b_n",
+    "delta_b_minus_a",
+    "delta_ci_low",
+    "delta_ci_high",
+    "delta_se",
+    "delta_z",
+    "delta_p_value",
+    "significance",
+  ];
+  const rows = metrics.map((m) => {
+    const unit = m.isPp ? "pp" : "proportion";
+    return [
+      m.label,
+      unit,
+      a.name,
+      m.av,
+      m.aStat.ci?.low ?? "",
+      m.aStat.ci?.high ?? "",
+      m.aStat.n ?? "",
+      b.name,
+      m.bv,
+      m.bStat.ci?.low ?? "",
+      m.bStat.ci?.high ?? "",
+      m.bStat.n ?? "",
+      m.diffTest?.diff ?? "",
+      m.diffTest?.ciLow ?? "",
+      m.diffTest?.ciHigh ?? "",
+      m.diffTest?.se ?? "",
+      m.diffTest?.z ?? "",
+      m.diffTest?.p ?? "",
+      m.diffTest ? sigStars(m.diffTest.p) : "",
+    ];
+  });
+  return toCsv([header, ...rows]);
 }
 
 function CompareView({
@@ -346,104 +728,227 @@ function CompareView({
   b: DatasetWithAnalysis;
   onClear: () => void;
 }) {
-  const ar = a.latest_analysis?.results_json as any;
-  const br = b.latest_analysis?.results_json as any;
-  const aAte = a.latest_analysis?.ate ?? ar?.ate ?? null;
-  const bAte = b.latest_analysis?.ate ?? br?.ate ?? null;
+  const metrics = useMemo(() => buildMetrics(a, b), [a, b]);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  const [exporting, setExporting] = useState<"csv" | "png" | null>(null);
 
-  const metrics = [
-    {
-      key: "overall",
-      label: "Overall churn",
-      av: ar?.overall_churn_rate ?? null,
-      bv: br?.overall_churn_rate ?? null,
-      lowerIsBetter: true,
-      fmt: pct,
-      deltaFmt: pp,
-    },
-    {
-      key: "control",
-      label: "Control churn",
-      av: ar?.control_churn_rate ?? null,
-      bv: br?.control_churn_rate ?? null,
-      lowerIsBetter: true,
-      fmt: pct,
-      deltaFmt: pp,
-    },
-    {
-      key: "treated",
-      label: "Treated churn",
-      av: ar?.treated_churn_rate ?? null,
-      bv: br?.treated_churn_rate ?? null,
-      lowerIsBetter: true,
-      fmt: pct,
-      deltaFmt: pp,
-    },
-    {
-      key: "ate",
-      label: "ATE (treatment effect)",
-      av: aAte,
-      bv: bAte,
-      lowerIsBetter: true, // negative ATE = treatment reduces churn = better
-      fmt: pp,
-      deltaFmt: pp,
-    },
-  ];
+  const handleCsv = () => {
+    setExporting("csv");
+    try {
+      const csv = buildCompareCsv(a, b, metrics);
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadString(`compare_${a.name}_vs_${b.name}_${ts}.csv`, csv);
+      toast({ title: "CSV exported", description: "Saved to your downloads." });
+    } catch (e: any) {
+      toast({
+        title: "Export failed",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handlePng = async () => {
+    if (!exportRef.current) return;
+    setExporting("png");
+    try {
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      await downloadNodeAsPng(
+        exportRef.current,
+        `compare_${a.name}_vs_${b.name}_${ts}.png`
+      );
+      toast({ title: "PNG exported", description: "Saved to your downloads." });
+    } catch (e: any) {
+      toast({
+        title: "Export failed",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
-    <Card className="glass-card border-primary/30 bg-primary/[0.03]">
+    <Card
+      className="glass-card border-primary/30 bg-primary/[0.03]"
+      role="region"
+      aria-label={`Comparison of run A "${a.name}" and run B "${b.name}"`}
+    >
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
-              <GitCompareArrows className="h-4 w-4 text-primary" />
+              <GitCompareArrows className="h-4 w-4 text-primary" aria-hidden="true" />
               Comparing two runs
             </CardTitle>
             <CardDescription className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-medium text-foreground">A: {a.name}</span>
-              <ArrowRight className="h-3 w-3" />
-              <span className="font-medium text-foreground">B: {b.name}</span>
+              <span
+                className="inline-flex items-center gap-1.5 font-medium text-foreground"
+                aria-label={`Run A: ${a.name}`}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: A_COLOR }}
+                  aria-hidden="true"
+                />
+                A: {a.name}
+              </span>
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+              <span
+                className="inline-flex items-center gap-1.5 font-medium text-foreground"
+                aria-label={`Run B: ${b.name}`}
+              >
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: B_COLOR }}
+                  aria-hidden="true"
+                />
+                B: {b.name}
+              </span>
             </CardDescription>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClear}>
-            Clear
-          </Button>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  aria-label="Export comparison"
+                  disabled={exporting !== null}
+                >
+                  {exporting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel>Download</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleCsv} className="gap-2">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Metric table (.csv)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePng} className="gap-2">
+                  <FileImage className="h-4 w-4" />
+                  Charts &amp; table (.png)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="sm" onClick={onClear}>
+              Clear
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4 p-0">
-        <CompareCharts a={a} b={b} metrics={metrics} />
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border/40 text-xs text-muted-foreground">
-                <th className="px-4 py-2 text-left font-medium">Metric</th>
-                <th className="px-4 py-2 text-right font-medium">A</th>
-                <th className="px-4 py-2 text-right font-medium">B</th>
-                <th className="px-4 py-2 text-right font-medium">Δ (B − A)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map((m) => {
-                const delta =
-                  m.av !== null && m.bv !== null && isFinite(m.av) && isFinite(m.bv)
-                    ? m.bv - m.av
-                    : null;
-                return (
-                  <tr key={m.key} className="border-b border-border/30 last:border-0">
-                    <td className="px-4 py-2.5 text-muted-foreground">{m.label}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{m.fmt(m.av)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{m.fmt(m.bv)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      <span className="inline-flex items-center justify-end gap-1">
-                        <DiffArrow delta={delta} lowerIsBetter={m.lowerIsBetter} />
-                        <span>{m.deltaFmt(delta)}</span>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div ref={exportRef} className="space-y-4 bg-background/0 pb-2">
+          <CompareCharts a={a} b={b} metrics={metrics} />
+          <div className="overflow-x-auto">
+            <table
+              className="w-full text-sm"
+              aria-label={`Metric comparison table for run A "${a.name}" and run B "${b.name}"`}
+            >
+              <caption className="sr-only">
+                Side-by-side metrics with 95% confidence intervals and two-sided
+                p-values for the difference B − A.
+              </caption>
+              <thead>
+                <tr className="border-b border-border/40 text-xs text-muted-foreground">
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    Metric
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">
+                    A (95% CI)
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">
+                    B (95% CI)
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">
+                    Δ (B − A)
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-medium">
+                    p-value
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.map((m) => {
+                  const delta = m.diffTest?.diff ?? null;
+                  const stars = m.diffTest ? sigStars(m.diffTest.p) : "";
+                  const pCls =
+                    !m.diffTest || stars === "ns"
+                      ? "text-muted-foreground"
+                      : "text-success";
+                  return (
+                    <tr
+                      key={m.key}
+                      className="border-b border-border/30 last:border-0"
+                    >
+                      <th
+                        scope="row"
+                        className="px-4 py-2.5 text-left font-normal text-muted-foreground"
+                      >
+                        {m.label}
+                      </th>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        <div>{m.fmt(m.av)}</div>
+                        {m.aStat.ci && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {fmtCI(m.aStat.ci, m.isPp)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        <div>{m.fmt(m.bv)}</div>
+                        {m.bStat.ci && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {fmtCI(m.bStat.ci, m.isPp)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        <span className="inline-flex items-center justify-end gap-1">
+                          <DiffArrow delta={delta} lowerIsBetter={m.lowerIsBetter} />
+                          <span>{m.deltaFmt(delta)}</span>
+                        </span>
+                        {m.diffTest && (
+                          <div className="text-[10px] text-muted-foreground">
+                            95% CI [{(m.diffTest.ciLow * 100).toFixed(2)}pp,{" "}
+                            {(m.diffTest.ciHigh * 100).toFixed(2)}pp]
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">
+                        {m.diffTest ? (
+                          <span className={cn("inline-flex items-center gap-1", pCls)}>
+                            {formatP(m.diffTest.p)}
+                            <span className="text-[10px] font-semibold">{stars}</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="px-4 pb-3 text-[10px] leading-relaxed text-muted-foreground">
+          Significance: <span className="font-semibold">***</span> p &lt; 0.001,{" "}
+          <span className="font-semibold">**</span> p &lt; 0.01,{" "}
+          <span className="font-semibold">*</span> p &lt; 0.05,{" "}
+          <span className="font-semibold">ns</span> not significant. Proportion
+          CIs use the Wald approximation; ATE p-values are derived from the stored
+          95% CI assuming normality.
         </div>
       </CardContent>
     </Card>
