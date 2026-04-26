@@ -37,27 +37,125 @@ const tooltipStyle = {
 };
 
 export default function Dashboard() {
-  const { selectedAnalysis, analysisStatus, analysisError, setAnalysisStatus, setAnalysisError } = useDataset();
+  const {
+    datasets,
+    selectedDatasetId,
+    selectedAnalysis,
+    analysisStatus,
+    analysisError,
+    setAnalysisStatus,
+    setAnalysisError,
+    refresh,
+  } = useDataset();
+
+  const selectedDataset = useMemo(
+    () => datasets.find((d) => d.id === selectedDatasetId) ?? null,
+    [datasets, selectedDatasetId]
+  );
+
+  // Effective status: DB row (persisted) wins over transient context state
+  const dbStatus = selectedAnalysis?.status;
+  const dbError = selectedAnalysis?.error_message ?? null;
+  const effectiveStatus =
+    dbStatus === "complete"
+      ? "complete"
+      : dbStatus === "error"
+      ? "error"
+      : dbStatus === "pending"
+      ? "analyzing"
+      : analysisStatus;
+  const effectiveError = dbError ?? analysisError;
+
+  // Poll while analysis is pending so the dashboard updates after refresh
+  useEffect(() => {
+    if (effectiveStatus !== "analyzing" && effectiveStatus !== "uploading") return;
+    const interval = setInterval(() => {
+      refresh();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [effectiveStatus, refresh]);
+
+  // Sync persisted state back into transient context (useful after refresh)
+  useEffect(() => {
+    if (dbStatus === "complete" && (analysisStatus === "analyzing" || analysisStatus === "uploading")) {
+      setAnalysisStatus("complete");
+      setAnalysisError(null);
+    } else if (dbStatus === "error" && analysisStatus !== "error") {
+      setAnalysisStatus("error");
+      setAnalysisError(dbError);
+    }
+  }, [dbStatus, dbError, analysisStatus, setAnalysisStatus, setAnalysisError]);
+
+  const DatasetBanner = () => {
+    if (!selectedDataset) return null;
+    const statusBadge = (() => {
+      if (effectiveStatus === "analyzing" || effectiveStatus === "uploading") {
+        return (
+          <Badge variant="outline" className="gap-1.5 border-primary/40 bg-primary/10 text-primary">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {effectiveStatus === "uploading" ? "Uploading" : "Analyzing"}
+          </Badge>
+        );
+      }
+      if (effectiveStatus === "error") {
+        return (
+          <Badge variant="outline" className="gap-1.5 border-destructive/40 bg-destructive/10 text-destructive">
+            <AlertCircle className="h-3 w-3" /> Error
+          </Badge>
+        );
+      }
+      if (effectiveStatus === "complete") {
+        return (
+          <Badge variant="outline" className="gap-1.5 border-success/40 bg-success/10 text-success">
+            <CheckCircle2 className="h-3 w-3" /> Complete
+          </Badge>
+        );
+      }
+      return (
+        <Badge variant="outline" className="gap-1.5">
+          <Clock className="h-3 w-3" /> Idle
+        </Badge>
+      );
+    })();
+
+    return (
+      <Card className="glass-card border-border/50">
+        <CardContent className="flex flex-wrap items-center gap-3 p-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+            <FileText className="h-4 w-4 text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{selectedDataset.name}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {selectedDataset.row_count.toLocaleString()} rows · uploaded{" "}
+              {new Date(selectedDataset.created_at).toLocaleString()}
+            </div>
+          </div>
+          {statusBadge}
+        </CardContent>
+      </Card>
+    );
+  };
 
   const StatusBanner = () => {
-    if (analysisStatus === "uploading" || analysisStatus === "analyzing") {
+    if (effectiveStatus === "uploading" || effectiveStatus === "analyzing") {
       return (
         <Card className="glass-card border-primary/40 bg-primary/5">
           <CardContent className="flex items-center gap-3 p-4">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
             <div className="flex-1">
               <div className="text-sm font-medium">
-                {analysisStatus === "uploading" ? "Uploading dataset…" : "Analyzing — running causal model…"}
+                {effectiveStatus === "uploading" ? "Uploading dataset…" : "Analyzing — running causal model…"}
               </div>
               <div className="text-xs text-muted-foreground">
-                This usually takes a few seconds. Results will appear automatically.
+                Polling for results… this usually takes a few seconds.
               </div>
             </div>
           </CardContent>
         </Card>
       );
     }
-    if (analysisStatus === "error" && analysisError) {
+    if (effectiveStatus === "error" && effectiveError) {
       return (
         <Card className="glass-card border-destructive/40 bg-destructive/5">
           <CardContent className="flex items-start gap-3 p-4">
@@ -65,7 +163,7 @@ export default function Dashboard() {
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-destructive">Analysis failed</div>
               <div className="mt-1 break-words text-xs text-destructive/90 font-mono">
-                {analysisError}
+                {effectiveError}
               </div>
             </div>
             <Button
@@ -87,7 +185,12 @@ export default function Dashboard() {
   };
 
   if (!selectedAnalysis?.results_json) {
-    if (analysisStatus === "uploading" || analysisStatus === "analyzing" || analysisStatus === "error") {
+    if (
+      selectedDataset ||
+      effectiveStatus === "uploading" ||
+      effectiveStatus === "analyzing" ||
+      effectiveStatus === "error"
+    ) {
       return (
         <div className="space-y-6">
           <div>
@@ -96,6 +199,7 @@ export default function Dashboard() {
               Overview of churn metrics and treatment effectiveness.
             </p>
           </div>
+          <DatasetBanner />
           <StatusBanner />
         </div>
       );
