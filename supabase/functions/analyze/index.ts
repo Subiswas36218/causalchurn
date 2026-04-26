@@ -182,14 +182,14 @@ Deno.serve(async (req) => {
     const userId = claimsData.claims.sub as string;
 
     const body = await req.json();
-    const { dataset_id, rows } = body as {
+    const { dataset_id, rows: rowsFromBody } = body as {
       dataset_id: string;
-      rows: CsvRow[];
+      rows?: CsvRow[];
     };
 
-    if (!dataset_id || !Array.isArray(rows) || rows.length === 0) {
+    if (!dataset_id) {
       return new Response(
-        JSON.stringify({ error: "dataset_id and rows[] are required" }),
+        JSON.stringify({ error: "dataset_id is required" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -198,6 +198,27 @@ Deno.serve(async (req) => {
     }
 
     const admin = createClient(supabaseUrl, supabaseService);
+
+    // Resolve rows: prefer body, else fetch CSV from storage (retry path)
+    let rows: CsvRow[] = Array.isArray(rowsFromBody) ? rowsFromBody : [];
+    if (rows.length === 0) {
+      const { data: ds, error: dsErr } = await admin
+        .from("datasets")
+        .select("storage_path,user_id")
+        .eq("id", dataset_id)
+        .single();
+      if (dsErr || !ds) throw new Error("Dataset not found");
+      if (ds.user_id !== userId) throw new Error("Forbidden");
+
+      const { data: file, error: dlErr } = await admin.storage
+        .from("datasets")
+        .download(ds.storage_path);
+      if (dlErr || !file) throw new Error(`Failed to download CSV: ${dlErr?.message ?? "unknown"}`);
+
+      const text = await file.text();
+      rows = parseCsv(text);
+      if (rows.length === 0) throw new Error("CSV is empty or could not be parsed");
+    }
 
     // Insert pending analysis row first so the client can poll for status
     const { data: pending, error: pErr } = await admin
