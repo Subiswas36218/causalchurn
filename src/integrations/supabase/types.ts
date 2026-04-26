@@ -21,6 +21,7 @@ export type Database = {
           ate_ci_low: number | null
           created_at: string
           dataset_id: string
+          error_message: string | null
           id: string
           results_json: Json | null
           status: string
@@ -32,6 +33,7 @@ export type Database = {
           ate_ci_low?: number | null
           created_at?: string
           dataset_id: string
+          error_message?: string | null
           id?: string
           results_json?: Json | null
           status?: string
@@ -43,6 +45,7 @@ export type Database = {
           ate_ci_low?: number | null
           created_at?: string
           dataset_id?: string
+          error_message?: string | null
           id?: string
           results_json?: Json | null
           status?: string
