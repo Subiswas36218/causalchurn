@@ -56,6 +56,9 @@ import {
   ArrowUp,
   Minus,
   Timer,
+  Download,
+  FileImage,
+  FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
