@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useDataset } from "@/hooks/useDataset";
 import { EmptyState } from "@/components/EmptyState";
@@ -5,8 +6,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X } from "lucide-react";
+import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X, FileText, CheckCircle2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 const COLORS = ["hsl(217 91% 60%)", "hsl(270 91% 65%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)"];
 
