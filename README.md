@@ -8,6 +8,8 @@
 
 Unlike traditional machine learning models, this system uses **causal inference + uplift modeling** to identify **true cause-effect relationships** between interventions (e.g., discounts) and churn outcomes.
 
+## App Link: https://causalchurn.lovable.app
+
 ---
 
 ## 🧠 Key Features
