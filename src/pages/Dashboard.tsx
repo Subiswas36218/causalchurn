@@ -121,6 +121,12 @@ export default function Dashboard() {
       );
     })();
 
+    const startedAt = selectedAnalysis?.created_at
+      ? new Date(selectedAnalysis.created_at)
+      : null;
+    const isRunning =
+      effectiveStatus === "analyzing" || effectiveStatus === "uploading";
+
     return (
       <Card className="glass-card border-border/50">
         <CardContent className="flex flex-wrap items-center gap-3 p-3">
@@ -129,9 +135,28 @@ export default function Dashboard() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{selectedDataset.name}</div>
-            <div className="text-[11px] text-muted-foreground">
-              {selectedDataset.row_count.toLocaleString()} rows · uploaded{" "}
-              {new Date(selectedDataset.created_at).toLocaleString()}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+              <span>{selectedDataset.row_count.toLocaleString()} rows</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span>uploaded {new Date(selectedDataset.created_at).toLocaleString()}</span>
+              {startedAt && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <PlayCircle className="h-3 w-3" />
+                    analysis started {startedAt.toLocaleTimeString()}
+                  </span>
+                </>
+              )}
+              {lastRefreshedAt && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <RefreshCw className={`h-3 w-3 ${isRunning ? "animate-spin" : ""}`} />
+                    last updated {lastRefreshedAt.toLocaleTimeString()}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           {statusBadge}
