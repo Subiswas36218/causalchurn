@@ -284,14 +284,6 @@ Deno.serve(async (req) => {
         .eq("id", analysisId);
       throw innerErr;
     }
-
-    return new Response(
-      JSON.stringify({ analysis_id: analysis.id, results }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
   } catch (e) {
     console.error("analyze error:", e);
     const msg = e instanceof Error ? e.message : "Unknown error";
