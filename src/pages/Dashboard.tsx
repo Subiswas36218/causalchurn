@@ -2,11 +2,13 @@ import { useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useDataset } from "@/hooks/useDataset";
 import { EmptyState } from "@/components/EmptyState";
+import { DatasetHistory } from "@/components/DatasetHistory";
+import { AnalysisProgress } from "@/components/AnalysisProgress";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X, FileText, CheckCircle2, Clock } from "lucide-react";
+import { Users, TrendingDown, TrendingUp, Activity, Target, Loader2, AlertCircle, X, FileText, CheckCircle2, Clock, PlayCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -46,6 +48,7 @@ export default function Dashboard() {
     setAnalysisStatus,
     setAnalysisError,
     refresh,
+    lastRefreshedAt,
   } = useDataset();
 
   const selectedDataset = useMemo(
@@ -118,6 +121,12 @@ export default function Dashboard() {
       );
     })();
 
+    const startedAt = selectedAnalysis?.created_at
+      ? new Date(selectedAnalysis.created_at)
+      : null;
+    const isRunning =
+      effectiveStatus === "analyzing" || effectiveStatus === "uploading";
+
     return (
       <Card className="glass-card border-border/50">
         <CardContent className="flex flex-wrap items-center gap-3 p-3">
@@ -126,9 +135,28 @@ export default function Dashboard() {
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{selectedDataset.name}</div>
-            <div className="text-[11px] text-muted-foreground">
-              {selectedDataset.row_count.toLocaleString()} rows · uploaded{" "}
-              {new Date(selectedDataset.created_at).toLocaleString()}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+              <span>{selectedDataset.row_count.toLocaleString()} rows</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span>uploaded {new Date(selectedDataset.created_at).toLocaleString()}</span>
+              {startedAt && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <PlayCircle className="h-3 w-3" />
+                    analysis started {startedAt.toLocaleTimeString()}
+                  </span>
+                </>
+              )}
+              {lastRefreshedAt && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="inline-flex items-center gap-1">
+                    <RefreshCw className={`h-3 w-3 ${isRunning ? "animate-spin" : ""}`} />
+                    last updated {lastRefreshedAt.toLocaleTimeString()}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           {statusBadge}
@@ -139,18 +167,26 @@ export default function Dashboard() {
 
   const StatusBanner = () => {
     if (effectiveStatus === "uploading" || effectiveStatus === "analyzing") {
+      const startedAt = selectedAnalysis?.created_at
+        ? new Date(selectedAnalysis.created_at)
+        : null;
       return (
         <Card className="glass-card border-primary/40 bg-primary/5">
-          <CardContent className="flex items-center gap-3 p-4">
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <div className="flex-1">
-              <div className="text-sm font-medium">
-                {effectiveStatus === "uploading" ? "Uploading dataset…" : "Analyzing — running causal model…"}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Polling for results… this usually takes a few seconds.
+          <CardContent className="space-y-4 p-4">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div className="flex-1">
+                <div className="text-sm font-medium">
+                  {effectiveStatus === "uploading"
+                    ? "Uploading dataset…"
+                    : "Analyzing — running causal model…"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  Polling every 2.5s for results.
+                </div>
               </div>
             </div>
+            <AnalysisProgress startedAt={startedAt} />
           </CardContent>
         </Card>
       );
@@ -201,6 +237,7 @@ export default function Dashboard() {
           </div>
           <DatasetBanner />
           <StatusBanner />
+          <DatasetHistory />
         </div>
       );
     }
@@ -243,6 +280,8 @@ export default function Dashboard() {
       <DatasetBanner />
 
       <StatusBanner />
+
+      <DatasetHistory />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi icon={Users} label="Total customers" value={r.total_customers.toLocaleString()} />
