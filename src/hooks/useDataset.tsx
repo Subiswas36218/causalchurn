@@ -61,11 +61,13 @@ const Ctx = createContext<DatasetCtx>({
 export function DatasetProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [datasets, setDatasets] = useState<DatasetRow[]>([]);
+  const [datasetsWithAnalysis, setDatasetsWithAnalysis] = useState<DatasetWithAnalysis[]>([]);
   const [selectedDatasetId, _setSelectedDatasetId] = useState<string | null>(
     () => localStorage.getItem("selectedDatasetId")
   );
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisRow | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>("idle");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
@@ -78,6 +80,7 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!user) {
       setDatasets([]);
+      setDatasetsWithAnalysis([]);
       setSelectedAnalysis(null);
       return;
     }
@@ -86,20 +89,41 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
       .from("datasets")
       .select("*")
       .order("created_at", { ascending: false });
-    setDatasets((ds as DatasetRow[]) ?? []);
+    const dsList = (ds as DatasetRow[]) ?? [];
+    setDatasets(dsList);
 
-    if (selectedDatasetId) {
-      const { data: an } = await supabase
+    // Fetch latest analysis per dataset (one query, then group)
+    let merged: DatasetWithAnalysis[] = dsList.map((d) => ({ ...d, latest_analysis: null }));
+    if (dsList.length > 0) {
+      const { data: ans } = await supabase
         .from("analyses")
         .select("*")
-        .eq("dataset_id", selectedDatasetId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setSelectedAnalysis((an as AnalysisRow) ?? null);
+        .in(
+          "dataset_id",
+          dsList.map((d) => d.id)
+        )
+        .order("created_at", { ascending: false });
+      const seen = new Set<string>();
+      const latestByDs: Record<string, AnalysisRow> = {};
+      ((ans as AnalysisRow[]) ?? []).forEach((a) => {
+        if (seen.has(a.dataset_id)) return;
+        seen.add(a.dataset_id);
+        latestByDs[a.dataset_id] = a;
+      });
+      merged = dsList.map((d) => ({
+        ...d,
+        latest_analysis: latestByDs[d.id] ?? null,
+      }));
+    }
+    setDatasetsWithAnalysis(merged);
+
+    if (selectedDatasetId) {
+      const found = merged.find((d) => d.id === selectedDatasetId);
+      setSelectedAnalysis(found?.latest_analysis ?? null);
     } else {
       setSelectedAnalysis(null);
     }
+    setLastRefreshedAt(new Date());
     setLoading(false);
   }, [user, selectedDatasetId]);
 
@@ -111,10 +135,12 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         datasets,
+        datasetsWithAnalysis,
         selectedDatasetId,
         setSelectedDatasetId,
         selectedAnalysis,
         loading,
+        lastRefreshedAt,
         refresh,
         analysisStatus,
         analysisError,
