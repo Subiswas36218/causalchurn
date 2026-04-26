@@ -284,7 +284,8 @@ Deno.serve(async (req) => {
         results = localAnalyze(rows);
       }
 
-      // Update analysis row with results
+      // Update analysis row with results (include finished_at so the UI can show runtime)
+      const finishedAt = new Date().toISOString();
       const { error: uErr } = await admin
         .from("analyses")
         .update({
@@ -292,7 +293,7 @@ Deno.serve(async (req) => {
           ate: results.ate,
           ate_ci_low: results.ate_ci_low,
           ate_ci_high: results.ate_ci_high,
-          results_json: results,
+          results_json: { ...results, finished_at: finishedAt },
           error_message: null,
         })
         .eq("id", analysisId);
