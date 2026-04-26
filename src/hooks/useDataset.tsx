@@ -18,6 +18,7 @@ export interface AnalysisRow {
   ate_ci_low: number | null;
   ate_ci_high: number | null;
   results_json: any;
+  error_message: string | null;
   created_at: string;
 }
 
