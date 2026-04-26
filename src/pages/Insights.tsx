@@ -162,13 +162,72 @@ export default function Insights() {
           </CardHeader>
           <CardContent>
             <CausalGraph graph={r.graph} />
-            <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-3 rounded bg-success" /> reduces churn
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-3 rounded bg-warning" /> increases churn
-              </span>
+
+            {/* Legend */}
+            <div className="mt-3 grid gap-3 rounded-lg border border-border/50 bg-card/40 p-3 text-[11px] sm:grid-cols-2">
+              <div>
+                <div className="mb-1.5 font-medium text-foreground">Node types</div>
+                <div className="space-y-1 text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: "hsl(217 91% 60%)", backgroundColor: "hsl(217 91% 60% / 0.15)" }} />
+                    Treatment — variable we intervene on
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: "hsl(270 91% 65%)", backgroundColor: "hsl(270 91% 65% / 0.15)" }} />
+                    Confounder — affects both treatment & outcome
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: "hsl(0 84% 60%)", backgroundColor: "hsl(0 84% 60% / 0.15)" }} />
+                    Outcome — what we're trying to explain
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="mb-1.5 font-medium text-foreground">Edges</div>
+                <div className="space-y-1 text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-1 w-6 rounded bg-success" /> Reduces churn (negative effect)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block h-1 w-6 rounded bg-warning" /> Increases churn (positive effect)
+                  </div>
+                  <div className="text-[10px]">Thicker line = stronger estimated effect.</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Node explanations */}
+            <div className="mt-3 space-y-2 rounded-lg border border-border/50 bg-card/40 p-3 text-xs">
+              <div className="font-medium text-foreground">What each node means</div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div>
+                  <div className="flex items-center gap-1.5 font-medium" style={{ color: "hsl(217 91% 60%)" }}>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(217 91% 60%)" }} />
+                    Discount
+                  </div>
+                  <p className="mt-1 text-muted-foreground leading-snug">
+                    The retention offer (treatment). We estimate how giving a discount changes the probability a customer churns.
+                  </p>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 font-medium" style={{ color: "hsl(270 91% 65%)" }}>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(270 91% 65%)" }} />
+                    Support tickets
+                  </div>
+                  <p className="mt-1 text-muted-foreground leading-snug">
+                    A confounder: unhappy customers raise more tickets <em>and</em> are more likely to churn — and may also be targeted with discounts.
+                  </p>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 font-medium" style={{ color: "hsl(0 84% 60%)" }}>
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: "hsl(0 84% 60%)" }} />
+                    Churn
+                  </div>
+                  <p className="mt-1 text-muted-foreground leading-snug">
+                    The outcome: whether the customer left. All effects in the graph are measured against this.
+                  </p>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
