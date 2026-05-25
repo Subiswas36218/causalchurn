@@ -720,12 +720,23 @@ function buildCompareCsv(
   return toCsv([header, ...rows]);
 }
 
+type CompareSortKey =
+  | "metric"
+  | "a"
+  | "b"
+  | "delta"
+  | "p"
+  | "stars"
+  | "aci"
+  | "bci"
+  | "dci";
+
 interface SortableThProps {
   label: string;
-  sortKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
-  activeKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  sortKey: CompareSortKey;
+  activeKey: CompareSortKey;
   dir: "asc" | "desc";
-  onSort: (key: SortableThProps["sortKey"]) => void;
+  onSort: (key: CompareSortKey) => void;
   align: "left" | "right";
 }
 
@@ -773,7 +784,7 @@ function CompareView({
   const exportRef = useRef<HTMLDivElement | null>(null);
   const [exporting, setExporting] = useState<"csv" | "png" | null>(null);
 
-  type SortKey = "metric" | "a" | "b" | "delta" | "p" | "stars";
+  type SortKey = CompareSortKey;
   type SortDir = "asc" | "desc";
   const [sortKey, setSortKey] = useState<SortKey>("metric");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -785,6 +796,9 @@ function CompareView({
     if (p < 0.05) return 1;
     return 0;
   };
+
+  const ciWidth = (ci: { low: number; high: number } | null | undefined): number | null =>
+    ci ? ci.high - ci.low : null;
 
   const sortedMetrics = useMemo(() => {
     const arr = [...metrics];
@@ -803,6 +817,12 @@ function CompareView({
           return m.diffTest?.p ?? null;
         case "stars":
           return starRank(m.diffTest?.p);
+        case "aci":
+          return ciWidth(m.aStat.ci);
+        case "bci":
+          return ciWidth(m.bStat.ci);
+        case "dci":
+          return m.diffTest ? m.diffTest.ciHigh - m.diffTest.ciLow : null;
       }
     };
     arr.sort((x, y) => {
@@ -822,14 +842,48 @@ function CompareView({
     return arr;
   }, [metrics, sortKey, sortDir]);
 
+  // Companion CI-width key for value columns, so a second click cycles into width sort.
+  const ciCounterpart: Partial<Record<SortKey, SortKey>> = {
+    a: "aci",
+    b: "bci",
+    delta: "dci",
+  };
+  const valueCounterpart: Partial<Record<SortKey, SortKey>> = {
+    aci: "a",
+    bci: "b",
+    dci: "delta",
+  };
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
+      // If this column has a CI-width companion, cycle into it (widest first).
+      const ciKey = ciCounterpart[key];
+      if (ciKey) {
+        setSortKey(ciKey);
+        setSortDir("desc");
+        return;
+      }
+      // If we're already on a CI-width sort, cycle back to its value column.
+      const valKey = valueCounterpart[key];
+      if (valKey) {
+        setSortKey(valKey);
+        setSortDir("desc");
+        return;
+      }
+      // Otherwise just flip direction.
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      // Numeric columns feel more useful descending by default; metric label asc.
-      setSortDir(key === "metric" ? "asc" : "desc");
+      return;
     }
+    // If we're on a CI-width sort and the user clicks the same column header again
+    // (which is bound to the value key), cycle back to value sort.
+    if (valueCounterpart[sortKey] === key) {
+      setSortKey(key);
+      setSortDir(key === "metric" ? "asc" : "desc");
+      return;
+    }
+    setSortKey(key);
+    // CI-width sorts default descending (widest first); value cols default desc; label asc.
+    setSortDir(key === "metric" ? "asc" : "desc");
   };
 
   const handleCsv = () => {
@@ -970,24 +1024,24 @@ function CompareView({
                     align="left"
                   />
                   <SortableTh
-                    label="A (95% CI)"
-                    sortKey="a"
+                    label={sortKey === "aci" ? "A CI width" : "A (95% CI)"}
+                    sortKey={sortKey === "aci" ? "aci" : "a"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                     align="right"
                   />
                   <SortableTh
-                    label="B (95% CI)"
-                    sortKey="b"
+                    label={sortKey === "bci" ? "B CI width" : "B (95% CI)"}
+                    sortKey={sortKey === "bci" ? "bci" : "b"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                     align="right"
                   />
                   <SortableTh
-                    label="Δ (B − A)"
-                    sortKey="delta"
+                    label={sortKey === "dci" ? "Δ CI width" : "Δ (B − A)"}
+                    sortKey={sortKey === "dci" ? "dci" : "delta"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
