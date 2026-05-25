@@ -1017,24 +1017,24 @@ function CompareView({
                     align="left"
                   />
                   <SortableTh
-                    label="A (95% CI)"
-                    sortKey="a"
+                    label={sortKey === "aci" ? "A CI width" : "A (95% CI)"}
+                    sortKey={sortKey === "aci" ? "aci" : "a"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                     align="right"
                   />
                   <SortableTh
-                    label="B (95% CI)"
-                    sortKey="b"
+                    label={sortKey === "bci" ? "B CI width" : "B (95% CI)"}
+                    sortKey={sortKey === "bci" ? "bci" : "b"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                     align="right"
                   />
                   <SortableTh
-                    label="Δ (B − A)"
-                    sortKey="delta"
+                    label={sortKey === "dci" ? "Δ CI width" : "Δ (B − A)"}
+                    sortKey={sortKey === "dci" ? "dci" : "delta"}
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
