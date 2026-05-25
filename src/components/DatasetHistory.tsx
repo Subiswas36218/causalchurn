@@ -863,6 +863,13 @@ function CompareView({
         setSortDir("desc");
         return;
       }
+      // If we're already on a CI-width sort, cycle back to its value column.
+      const valKey = valueCounterpart[key];
+      if (valKey) {
+        setSortKey(valKey);
+        setSortDir("desc");
+        return;
+      }
       // Otherwise just flip direction.
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
       return;
