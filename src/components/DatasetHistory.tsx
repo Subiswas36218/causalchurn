@@ -1012,71 +1012,102 @@ function CompareView({
                 </tr>
               </thead>
               <tbody>
-                {sortedMetrics.map((m) => {
-                  const delta = m.diffTest?.diff ?? null;
-                  const stars = m.diffTest ? sigStars(m.diffTest.p) : "";
-                  const pCls =
-                    !m.diffTest || stars === "ns"
-                      ? "text-muted-foreground"
-                      : "text-success";
-                  return (
-                    <tr
-                      key={m.key}
-                      className="border-b border-border/30 last:border-0"
-                    >
-                      <th
-                        scope="row"
-                        className="px-4 py-2.5 text-left font-normal text-muted-foreground"
-                      >
-                        {m.label}
-                      </th>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <div>{m.fmt(m.av)}</div>
-                        {m.aStat.ci && (
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtCI(m.aStat.ci, m.isPp)}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <div>{m.fmt(m.bv)}</div>
-                        {m.bStat.ci && (
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtCI(m.bStat.ci, m.isPp)}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        <span className="inline-flex items-center justify-end gap-1">
-                          <DiffArrow delta={delta} lowerIsBetter={m.lowerIsBetter} />
-                          <span>{m.deltaFmt(delta)}</span>
-                        </span>
-                        {m.diffTest && (
-                          <div className="text-[10px] text-muted-foreground">
-                            95% CI [{(m.diffTest.ciLow * 100).toFixed(2)}pp,{" "}
-                            {(m.diffTest.ciHigh * 100).toFixed(2)}pp]
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {m.diffTest ? (
-                          <span className={pCls}>{formatP(m.diffTest.p)}</span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">
-                        {m.diffTest ? (
-                          <span className={cn("text-[11px] font-semibold", pCls)}>
-                            {stars}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
+                {(() => {
+                  // Determine top 3 most-significant metrics regardless of sort order
+                  const ranked = metrics
+                    .map((m) => ({
+                      key: m.key,
+                      rank: starRank(m.diffTest?.p),
+                    }))
+                    .filter((x) => x.rank >= 0)
+                    .sort((a, b) => b.rank - a.rank);
+                  const topKeys = new Set(
+                    ranked.slice(0, 3).map((x) => x.key)
                   );
-                })}
+                  return sortedMetrics.map((m) => {
+                    const delta = m.diffTest?.diff ?? null;
+                    const stars = m.diffTest ? sigStars(m.diffTest.p) : "";
+                    const pCls =
+                      !m.diffTest || stars === "ns"
+                        ? "text-muted-foreground"
+                        : "text-success";
+                    const isTopSig = topKeys.has(m.key);
+                    return (
+                      <tr
+                        key={m.key}
+                        className={cn(
+                          "border-b border-border/30 last:border-0",
+                          isTopSig && "bg-primary/[0.04]"
+                        )}
+                      >
+                        <th
+                          scope="row"
+                          className="px-4 py-2.5 text-left font-normal text-muted-foreground"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            {m.label}
+                            {isTopSig && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                    ★ top sig.
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">
+                                  Among the top 3 most statistically significant differences in this comparison
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </span>
+                        </th>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          <div>{m.fmt(m.av)}</div>
+                          {m.aStat.ci && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {fmtCI(m.aStat.ci, m.isPp)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          <div>{m.fmt(m.bv)}</div>
+                          {m.bStat.ci && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {fmtCI(m.bStat.ci, m.isPp)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          <span className="inline-flex items-center justify-end gap-1">
+                            <DiffArrow delta={delta} lowerIsBetter={m.lowerIsBetter} />
+                            <span>{m.deltaFmt(delta)}</span>
+                          </span>
+                          {m.diffTest && (
+                            <div className="text-[10px] text-muted-foreground">
+                              95% CI [{(m.diffTest.ciLow * 100).toFixed(2)}pp,{" "}
+                              {(m.diffTest.ciHigh * 100).toFixed(2)}pp]
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          {m.diffTest ? (
+                            <span className={pCls}>{formatP(m.diffTest.p)}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          {m.diffTest ? (
+                            <span className={cn("text-[11px] font-semibold", pCls)}>
+                              {stars}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
