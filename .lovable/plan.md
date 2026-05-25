@@ -1,77 +1,42 @@
+## Summary
+Extend the compare-table sorting so each of the A, B, and Δ columns can cycle between sorting by *value* and sorting by *CI width* (high − low). This lets users quickly surface metrics with the most/least precise estimates.
 
-# Causal Customer Churn Analysis — SaaS Dashboard
+## Why
+Wide CIs mean uncertainty. Being able to sort by CI width makes it easy to spot which metrics are trustworthy and which are noisy.
 
-A dark-themed, multi-page analytics SaaS for uploading customer data, running causal analysis on churn, and turning insights into targeted retention actions.
+## Changes
 
-## Stack & Backend
-- **Lovable Cloud** (Supabase) for auth, Postgres, storage, edge functions
-- **Auth**: Email/password + Google sign-in (login + signup pages, protected routes)
-- **External Python causal API**: you'll provide the URL + API key; stored as secrets and called from a `analyze` edge function (so the key never hits the browser)
-- **CSV uploads** stored in a `datasets` Supabase storage bucket; metadata + analysis results stored in tables
+### 1. Extend sort-key types
+Add `"aci"`, `"bci"`, `"dci"` to the `SortKey` union in `CompareView` and to the `SortableThProps` interface.
 
-## Fixed CSV Schema
-Required columns (validated on upload):
-`customer_id, treatment (0/1), churn (0/1), tenure, support_tickets, discount, monthly_charges`
+### 2. Compute CI width in the sort extractor
+In the `valOf` function inside `sortedMetrics`:
+- `"aci"` → `m.aStat.ci ? m.aStat.ci.high - m.aStat.ci.low : null`
+- `"bci"` → `m.bStat.ci ? m.bStat.ci.high - m.bStat.ci.low : null`
+- `"dci"` → `m.diffTest ? m.diffTest.ciHigh - m.diffTest.ciLow : null`
 
-Rows failing schema → blocking error with row-level feedback.
+Null/undefined CIs sort to the bottom, following the existing null-handling convention.
 
-## Pages
+### 3. Cycle sort mode on A/B/Δ columns
+Update `toggleSort` so that clicking a column that is **already** the active sort key switches to its CI-width counterpart instead of just flipping direction:
 
-### 1. Auth (`/auth`)
-Email/password + Google. Branded dark card layout.
+- A value (`"a"`) → A CI width (`"aci"`) → back to A value (toggle direction)
+- B value (`"b"`) → B CI width (`"bci"`) → back to B value
+- Δ value (`"delta"`) → Δ CI width (`"dci"`) → back to Δ value
 
-### 2. Upload Dataset (`/upload`)
-- Drag-and-drop CSV uploader + "Load demo dataset" button (ships a built-in telecom-churn sample)
-- Schema validation, row count, missing-value summary
-- Preview table (first 50 rows, sortable)
-- "Run Analysis" button → uploads file, calls `/analyze` edge function, redirects to Dashboard when ready
-- Sidebar list of past datasets (per user)
+This keeps the table compact (no extra columns) while giving two sort dimensions per column.
 
-### 3. Dashboard (`/dashboard`)
-- KPI cards: Total customers, Overall churn rate, Treated churn rate, Control churn rate, Lift
-- Bar chart: Treatment vs No-Treatment churn comparison
-- Line chart: Churn rate by tenure bucket
-- Donut: Customer mix by segment
+### 4. Visual feedback
+- Update `SortableTh` labels so they read `"A (95% CI)"` / `"A CI width"` depending on the active sort key.
+- The arrow icon direction reflects ascending/descending order as usual.
+- ARIA labels are updated so screen-reader users hear whether sorting is by value or by width.
 
-### 4. Causal Insights (`/insights`)
-- Big metric card: **ATE (Average Treatment Effect)** with 95% CI
-- Per-feature CATE table (effect of discount conditioned on tenure, support tickets, etc.)
-- **Causal graph visualization**: interactive DAG (nodes: discount, support, tenure, charges → churn) using SVG with directed edges and effect-strength labels
-- Method/assumptions panel (what the Python API used)
+### 5. Default direction
+CI-width sorts default to `descending` (widest first), which is typically more useful for spotting uncertainty.
 
-### 5. Uplift Segmentation (`/uplift`)
-- Four-quadrant scatter (predicted uplift vs baseline churn risk)
-- Segment cards with counts + avg uplift:
-  - **Persuadable** (high uplift)
-  - **Sure Things** (would stay anyway)
-  - **Lost Causes** (won't stay either way)
-  - **Sleeping Dogs** (treatment hurts)
-- Table of top high-impact users with CSV export
+## Files
+- `src/components/DatasetHistory.tsx` — compare view sorting logic only.
 
-### 6. Recommendations (`/recommendations`)
-- Auto-generated action cards per segment:
-  - "Offer 15% discount to 1,240 Persuadables → est. 312 retained, $X revenue saved"
-  - "Increase support touchpoints for Segment B"
-  - "Do NOT discount Sleeping Dogs"
-- Each card: target count, projected impact, "Export segment list" button
-
-## Layout & Design
-- Persistent left sidebar nav with icons (Lucide), collapsible on mobile
-- Top bar: dataset selector, user menu, theme indicator
-- **Dark SaaS theme**: deep navy background (#0B1020-ish), elevated card surfaces, electric blue + violet accent gradient, subtle grid bg, glassy cards with soft borders, generous spacing
-- Charts via Recharts, themed to match
-- Loading skeletons everywhere; toast notifications for upload/analysis events
-
-## Data Model (Supabase)
-- `datasets` (id, user_id, name, storage_path, row_count, created_at)
-- `analyses` (id, dataset_id, user_id, status, ate, ate_ci_low, ate_ci_high, results_json, created_at)
-- `user_segments` (id, analysis_id, customer_id, segment, predicted_uplift, baseline_risk)
-- RLS: users only see their own rows
-- Storage bucket `datasets` (private, per-user folders)
-
-## What I'll Need From You After Approval
-- The Python causal API base URL
-- An API key/token for that endpoint
-- The expected request/response JSON shape (or I'll propose one and you confirm)
-
-Once approved, I'll enable Lovable Cloud, set up auth + tables + storage, scaffold all pages with the dark theme, and wire the `/analyze` edge function to your Python service.
+## Out of scope
+- No new dependencies.
+- No changes to chart rendering, export, or statistical calculations.

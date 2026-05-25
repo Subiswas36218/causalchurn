@@ -720,12 +720,23 @@ function buildCompareCsv(
   return toCsv([header, ...rows]);
 }
 
+type CompareSortKey =
+  | "metric"
+  | "a"
+  | "b"
+  | "delta"
+  | "p"
+  | "stars"
+  | "aci"
+  | "bci"
+  | "dci";
+
 interface SortableThProps {
   label: string;
-  sortKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
-  activeKey: "metric" | "a" | "b" | "delta" | "p" | "stars";
+  sortKey: CompareSortKey;
+  activeKey: CompareSortKey;
   dir: "asc" | "desc";
-  onSort: (key: SortableThProps["sortKey"]) => void;
+  onSort: (key: CompareSortKey) => void;
   align: "left" | "right";
 }
 
